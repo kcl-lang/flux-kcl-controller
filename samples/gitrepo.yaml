@@ -1,0 +1,10 @@
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: kcl-deployment
+  namespace: default
+spec:
+  interval: 30s
+  url: https://github.com/awesome-kusion/kcl-deployment.git
+  ref:
+    branch: main

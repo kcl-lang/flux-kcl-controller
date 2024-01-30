@@ -1,0 +1,47 @@
+project_name: kcl-controller
+
+builds:
+  - skip: true
+
+release:
+  prerelease: auto
+  footer: |
+    ## Container images
+    
+    - `docker.io/kcllang/{{.ProjectName}}:{{.Tag}}`
+    - `ghcr.io/kcl-lang/{{.ProjectName}}:{{.Tag}}`
+    
+    Supported architectures: `linux/amd64`, `linux/arm64` and `linux/arm/v7`.
+    
+    The container images are built on GitHub hosted runners and are signed with cosign and GitHub OIDC.
+
+changelog:
+  use: github-native
+
+checksum:
+  name_template: 'checksums.txt'
+
+source:
+  enabled: true
+
+sboms:
+  - artifacts: archive
+  - id: source
+    artifacts: source
+
+# signs the checksum file
+# all files (including the sboms) are included in the checksum, so we don't need to sign each one if we don't want to
+# https://goreleaser.com/customization/sign
+signs:
+  - cmd: cosign
+    env:
+      - COSIGN_EXPERIMENTAL=1
+    certificate: '${artifact}.pem'
+    args:
+      - sign-blob
+      - "--yes"
+      - '--output-certificate=${certificate}'
+      - '--output-signature=${signature}'
+      - '${artifact}'
+    artifacts: checksum
+    output: true
