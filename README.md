@@ -84,7 +84,8 @@ Use the command `kubectl apply -f gitrepo.yaml` to deploy the object to the clus
 Use the command `kubectl get deployment` to view the deployment result:
 
 ```shell
-
+NAME               READY   UP-TO-DATE   AVAILABLE   AGE
+nginx-deployment   1/1     1            0           28s
 ```
 
 The `nginx-deployment` is deployed successfully.
@@ -95,7 +96,7 @@ We can update the `Deployment` in the cluster by modifying the KCL program in th
 
 Change the version of nginx from `1.7.7` to `1.7.8` and the name of `deployment` to `nginx-deployment-1`, and commit to the main branch.
 
-The changes can be referred to: [nginx:1.7.7 deployment]() -> [nginx:1.7.8 deployment]()
+The changes can be referred to: [nginx:1.7.7 deployment](https://github.com/awesome-kusion/kcl-deployment/commit/dc8b2aa70b1b47bef0637212ea184792b8c43449) -> [nginx:1.7.8 deployment](https://github.com/awesome-kusion/kcl-deployment/commit/f257a71fdff6cb9190f49c1dbf5fa4496d7b3cb2)
 
 Use the command `kubectl get deployment` to view the deployment result:
 

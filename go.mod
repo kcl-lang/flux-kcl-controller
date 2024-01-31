@@ -1,6 +1,8 @@
 module github.com/fluxcd/kcl-controller
 
-go 1.20
+go 1.21
+
+toolchain go1.21.6
 
 // Replace digest lib to master to gather access to BLAKE3.
 // xref: https://github.com/opencontainers/go-digest/pull/66
