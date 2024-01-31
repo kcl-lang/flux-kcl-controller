@@ -9,9 +9,11 @@
 
 kcl-controller 是一个组件，用于集成 [KCL](https://github.com/kcl-lang/kcl) 和 [Flux](https://github.com/fluxcd/flux2), 主要用来根据存储在 git/oci 仓库中的 KCL 程序定义的基础设施和工作负载，通过 [source-controller](https://github.com/fluxcd/source-controller) 获取 KCL 程序，实现基础设施和工作负载的持续交付。
 
+![kcl-flux](./docs/img/kcl-flux.png)
+
 # 特性
 
-- 定期监控存储 KCL 程序的 git 仓库，并根据 git 仓库中的变化，调谐 k8s 集群状态。
+- 定期监控存储 KCL 程序的 git/oci 仓库，并根据 git 仓库中的变化，调谐 k8s 集群状态。
 
 # 快速开始
 
@@ -75,6 +77,17 @@ spec:
   url: https://github.com/awesome-kusion/kcl-deployment.git
   ref:
     branch: main # 监控 main 分支
+---
+apiVersion: krm.kcl.dev.fluxcd/v1alpha1
+kind: KCLRun
+metadata:
+  name: kcl-git-controller
+  namespace: default
+spec:
+  interval: 30s
+  sourceRef:
+    kind: GitRepository
+    name: nginx-deployment
 ```
 
 使用命令 `kubectl apply -f gitrepo.yaml` 将该对象部署到集群中。
