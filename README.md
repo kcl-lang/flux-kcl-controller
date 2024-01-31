@@ -8,6 +8,8 @@
 
 The kcl-controller is a component developed for the integration of [KCL](https://github.com/kcl-lang/kcl) and [Flux](https://github.com/fluxcd/flux2), designed to orchestrate continuous delivery pipelines for infrastructure and workloads defined with KCL based on the [source-controller](https://github.com/fluxcd/source-controller) to acquire the KCL program from repositories.
 
+![kcl-flux](./docs/img/kcl-flux.png)
+
 # Features
 
 - Periodically monitor git repositories that store KCL programs and reconcile k8s cluster status according to changes in git repositories.
@@ -75,6 +77,16 @@ spec:
   url: https://github.com/awesome-kusion/kcl-deployment.git
   ref:
     branch: main # Monitor the main branch
+---
+apiVersion: krm.kcl.dev.fluxcd/v1alpha1
+kind: KCLRun
+metadata:
+  name: kcl-git-controller
+  namespace: default
+spec:
+  sourceRef:
+    kind: GitRepository
+    name: nginx-deployment
 ```
 
 Use the command `kubectl apply -f gitrepo.yaml` to deploy the object to the cluster.
