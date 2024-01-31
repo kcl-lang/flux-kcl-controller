@@ -26,7 +26,7 @@ require (
 	github.com/BurntSushi/toml v1.3.2 // indirect
 	github.com/MakeNowJust/heredoc v1.0.0 // indirect
 	github.com/Microsoft/go-winio v0.6.1 // indirect
-	github.com/ProtonMail/go-crypto v0.0.0-20231012073058-a7379d079e0e // indirect
+	github.com/ProtonMail/go-crypto v0.0.0-20230828082145-3c4c8a2d2371 // indirect
 	github.com/chai2010/gettext-go v1.0.2 // indirect
 	github.com/chai2010/jsonv v1.1.3 // indirect
 	github.com/chai2010/protorpc v1.1.4 // indirect

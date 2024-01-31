@@ -1,8 +1,13 @@
-# [WIP] kcl-controller
+<h1 align="center">KCL controller</h1>
+
+<p align="center">
+<a href="./README.md">English</a> | <a href="./README-zh.md">简体中文</a>
+</p>
+
+
+# 介绍
 
 kcl-controller 是一个组件，用于集成 [KCL](https://github.com/kcl-lang/kcl) 和 [Flux](https://github.com/fluxcd/flux2), 主要用来根据存储在 git/oci 仓库中的 KCL 程序定义的基础设施和工作负载，通过 [source-controller](https://github.com/fluxcd/source-controller) 获取 KCL 程序，实现基础设施和工作负载的持续交付。
-
-![overview](./docs/img/overview.png)
 
 # 特性
 
@@ -79,8 +84,11 @@ spec:
 使用命令 `kubectl get deployment` 查看部署结果：
 
 ```shell
-
+NAME               READY   UP-TO-DATE   AVAILABLE   AGE
+nginx-deployment   1/1     1            0           28s
 ```
+
+可以看到，kcl-controller 根据仓库中的 KCL 程序，创建了一个 Deployment。
 
 ## 更新仓库中的 KCL 程序
 
@@ -89,7 +97,19 @@ spec:
 修改仓库中的 KCL 程序，将 nginx 的版本从 `1.7.7` 修改为 `1.7.8`，将`deployment`的名字改为 `nginx-deployment-1`，并且提交到 main 分支。
 
 具体变化可以参考:
-[nginx:1.7.7 deployment]() -> [nginx:1.7.8 deployment]()
+[nginx:1.7.7 deployment](https://github.com/awesome-kusion/kcl-deployment/commit/dc8b2aa70b1b47bef0637212ea184792b8c43449) -> [nginx:1.7.8 deployment](https://github.com/awesome-kusion/kcl-deployment/commit/f257a71fdff6cb9190f49c1dbf5fa4496d7b3cb2)
+
+
+使用命令 `kubectl get deployment` 查看部署结果：
+
+```shell
+NAME               READY   UP-TO-DATE   AVAILABLE   AGE
+NAME                 READY   UP-TO-DATE   AVAILABLE   AGE
+nginx-deployment     1/1     1            1           20m
+nginx-deployment-1   1/1     1            0           4s
+```
+
+可以看到，kcl-controller 根据仓库中的 KCL 程序，创建了一个 nginx-deployment-1。
 
 # 未来工作
 

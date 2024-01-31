@@ -1,8 +1,12 @@
-# [WIP] kcl-controller
+<h1 align="center">KCL controller</h1>
+
+<p align="center">
+<a href="./README.md">English</a> | <a href="./README-zh.md">简体中文</a>
+</p>
+
+# Introduction
 
 The kcl-controller is a component developed for the integration of [KCL](https://github.com/kcl-lang/kcl) and [Flux](https://github.com/fluxcd/flux2), designed to orchestrate continuous delivery pipelines for infrastructure and workloads defined with KCL based on the [source-controller](https://github.com/fluxcd/source-controller) to acquire the KCL program from repositories.
-
-![overview](./docs/img/overview.png)
 
 # Features
 
@@ -92,6 +96,18 @@ We can update the `Deployment` in the cluster by modifying the KCL program in th
 Change the version of nginx from `1.7.7` to `1.7.8` and the name of `deployment` to `nginx-deployment-1`, and commit to the main branch.
 
 The changes can be referred to: [nginx:1.7.7 deployment]() -> [nginx:1.7.8 deployment]()
+
+Use the command `kubectl get deployment` to view the deployment result:
+
+
+```shell
+NAME               READY   UP-TO-DATE   AVAILABLE   AGE
+NAME                 READY   UP-TO-DATE   AVAILABLE   AGE
+nginx-deployment     1/1     1            1           20m
+nginx-deployment-1   1/1     1            0           4s
+```
+
+kcl-controller creates a `nginx-deployment-1` according to the KCL program in the repository.
 
 # Roadmap
 
