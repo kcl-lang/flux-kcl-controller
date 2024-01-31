@@ -84,7 +84,6 @@ metadata:
   name: kcl-git-controller
   namespace: default
 spec:
-  interval: 30s
   sourceRef:
     kind: GitRepository
     name: nginx-deployment
