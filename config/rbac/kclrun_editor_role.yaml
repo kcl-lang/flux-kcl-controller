@@ -1,0 +1,31 @@
+# permissions for end users to edit kclruns.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: clusterrole
+    app.kubernetes.io/instance: kclrun-editor-role
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: 
+    app.kubernetes.io/part-of: 
+    app.kubernetes.io/managed-by: kustomize
+  name: kclrun-editor-role
+rules:
+- apiGroups:
+  - krm.kcl.dev.fluxcd
+  resources:
+  - kclruns
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - krm.kcl.dev.fluxcd
+  resources:
+  - kclruns/status
+  verbs:
+  - get

@@ -1,0 +1,4 @@
+## Append samples of your project ##
+resources:
+- krm.kcl.dev.fluxcd_v1alpha1_kclrun.yaml
+#+kubebuilder:scaffold:manifestskustomizesamples

@@ -71,7 +71,7 @@ apiVersion: source.toolkit.fluxcd.io/v1
 kind: GitRepository
 metadata:
   name: kcl-deployment
-  namespace: default
+  namespace: source-system
 spec:
   interval: 30s # 每隔 30s 检查一次仓库
   url: https://github.com/awesome-kusion/kcl-deployment.git
@@ -81,12 +81,12 @@ spec:
 apiVersion: krm.kcl.dev.fluxcd/v1alpha1
 kind: KCLRun
 metadata:
-  name: kcl-git-controller
-  namespace: default
+  name: kcl-deployment
+  namespace: source-system
 spec:
   sourceRef:
     kind: GitRepository
-    name: nginx-deployment
+    name: kcl-deployment
 ```
 
 使用命令 `kubectl apply -f gitrepo.yaml` 将该对象部署到集群中。
