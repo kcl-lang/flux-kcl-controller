@@ -71,22 +71,22 @@ apiVersion: source.toolkit.fluxcd.io/v1
 kind: GitRepository
 metadata:
   name: kcl-deployment
-  namespace: default
+  namespace: source-system
 spec:
-  interval: 30s # Check the repository every 30s
+  interval: 30s # 每隔 30s 检查一次仓库
   url: https://github.com/awesome-kusion/kcl-deployment.git
   ref:
-    branch: main # Monitor the main branch
+    branch: main # 监控 main 分支
 ---
 apiVersion: krm.kcl.dev.fluxcd/v1alpha1
 kind: KCLRun
 metadata:
-  name: kcl-git-controller
-  namespace: default
+  name: kcl-deployment
+  namespace: source-system
 spec:
   sourceRef:
     kind: GitRepository
-    name: nginx-deployment
+    name: kcl-deployment
 ```
 
 Use the command `kubectl apply -f gitrepo.yaml` to deploy the object to the cluster.

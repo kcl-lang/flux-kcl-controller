@@ -20,12 +20,13 @@ COPY go.sum go.sum
 RUN go mod download
 
 # copy source code
-COPY main.go main.go
-COPY controllers/ controllers/
+COPY cmd/main.go cmd/main.go
+COPY api/ api/
+COPY internal/controller/ internal/controller/
 
 # build
 ENV CGO_ENABLED=0
-RUN xx-go build -a -o kcl-controller main.go
+RUN xx-go build -a -o kcl-controller cmd/main.go
 
 FROM kcllang/kcl
 # FROM alpine:3.19

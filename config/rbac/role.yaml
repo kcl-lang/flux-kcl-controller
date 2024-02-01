@@ -6,16 +6,28 @@ metadata:
   name: source-reader
 rules:
 - apiGroups:
-  - source.toolkit.fluxcd.io
+  - krm.kcl.dev.fluxcd
   resources:
-  - gitrepositories
+  - kclruns
   verbs:
+  - create
+  - delete
   - get
   - list
+  - patch
+  - update
   - watch
 - apiGroups:
-  - source.toolkit.fluxcd.io
+  - krm.kcl.dev.fluxcd
   resources:
-  - gitrepositories/status
+  - kclruns/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - krm.kcl.dev.fluxcd
+  resources:
+  - kclruns/status
   verbs:
   - get
+  - patch
+  - update

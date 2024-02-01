@@ -27,9 +27,13 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	"github.com/fluxcd/kcl-controller/controllers"
 	"github.com/fluxcd/pkg/runtime/logger"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
+
+	// "github.com/kcl-lang/kcl-controller/controllers"
+
+	krmkcldevfluxcdv1alpha1 "github.com/kcl-lang/kcl-controller/api/v1alpha1"
+	"github.com/kcl-lang/kcl-controller/internal/controller"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -42,6 +46,7 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(sourcev1.AddToScheme(scheme))
 
+	utilruntime.Must(krmkcldevfluxcdv1alpha1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -75,14 +80,21 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err = (&controllers.GitRepositoryController{
-		Client:    mgr.GetClient(),
-		HttpRetry: httpRetry,
+	// if err = (&controllers.GitRepositoryController{
+	// 	Client:    mgr.GetClient(),
+	// 	HttpRetry: httpRetry,
+	// }).SetupWithManager(mgr); err != nil {
+	// 	setupLog.Error(err, "unable to create controller", "controller", "GitRepositoryWatcher")
+	// 	os.Exit(1)
+	// }
+
+	if err = (&controller.KCLRunReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
 	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "GitRepositoryWatcher")
+		setupLog.Error(err, "unable to create controller", "controller", "KCLRun")
 		os.Exit(1)
 	}
-
 	// +kubebuilder:scaffold:builder
 
 	setupLog.Info("starting manager")

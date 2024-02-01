@@ -1,0 +1,12 @@
+apiVersion: krm.kcl.dev.fluxcd/v1alpha1
+kind: KCLRun
+metadata:
+  labels:
+    app.kubernetes.io/name: kclrun
+    app.kubernetes.io/instance: kclrun-sample
+    app.kubernetes.io/part-of: 
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: 
+  name: kclrun-sample
+spec:
+  # TODO(user): Add fields here
