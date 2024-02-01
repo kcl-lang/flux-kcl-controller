@@ -24,20 +24,10 @@ The kcl-controller is a component developed for the integration of [KCL](https:/
 
 ## Create a test k8s cluster
 
-Create a cluster using `mycluster.yaml`:
-
-```yaml
-apiVersion: k3d.io/v1alpha2
-kind: Simple
-name: mycluster
-servers: 1
-agents: 2
-```
-
 Create a cluster using the following command:
 
 ```shell
-k3d cluster create -c mycluster.yaml
+k3d cluster create
 ```
 
 ## Download kcl-controller and install it into the cluster
@@ -45,13 +35,13 @@ k3d cluster create -c mycluster.yaml
 Clone this repository to local:
 
 ```shell
-git clone https://github.com/kcl-lang/kcl-controller.git
+git clone https://github.com/kcl-lang/flux-kcl-controller.git
 ```
 
 Enter the root directory of this repository:
 
 ```shell
-cd kcl-controller
+cd flux-kcl-controller
 ```
 
 Install kcl-controller into the cluster:
@@ -73,10 +63,10 @@ metadata:
   name: kcl-deployment
   namespace: source-system
 spec:
-  interval: 30s # 每隔 30s 检查一次仓库
+  interval: 30s
   url: https://github.com/awesome-kusion/kcl-deployment.git
   ref:
-    branch: main # 监控 main 分支
+    branch: main
 ---
 apiVersion: krm.kcl.dev.fluxcd/v1alpha1
 kind: KCLRun
@@ -114,7 +104,6 @@ Use the command `kubectl get deployment` to view the deployment result:
 
 
 ```shell
-NAME               READY   UP-TO-DATE   AVAILABLE   AGE
 NAME                 READY   UP-TO-DATE   AVAILABLE   AGE
 nginx-deployment     1/1     1            1           20m
 nginx-deployment-1   1/1     1            0           4s
