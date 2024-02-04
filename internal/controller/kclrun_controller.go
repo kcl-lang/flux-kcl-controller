@@ -255,6 +255,8 @@ func (r *KCLRunReconciler) requestsForRevisionChangeOf() handler.MapFunc {
 	}
 }
 
+// TODO: This is a temporary function to compile the KCL source code into kubernetes manifests
+// The api of compiling the KCL source code will be updated in the future to fix the issue
 func CompileKclPackage(pkgPath string) (*kcl.KCLResultList, error) {
 	kpmcli, _ := kclcli.NewKpmClient()
 	opts := opt.DefaultCompileOptions()
