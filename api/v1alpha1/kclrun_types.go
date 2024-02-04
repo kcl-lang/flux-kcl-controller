@@ -36,6 +36,12 @@ type KCLRunSpec struct {
 type KCLRunStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
+
+	// LastAttemptedRevision is the revision of the last reconciliation attempt.
+	// +optional
+	LastAttemptedRevision string `json:"lastAttemptedRevision,omitempty"`
+	// +optional
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 //+kubebuilder:object:root=true
@@ -61,4 +67,14 @@ type KCLRunList struct {
 
 func init() {
 	SchemeBuilder.Register(&KCLRun{}, &KCLRunList{})
+}
+
+// GetConditions returns the status conditions of the object.
+func (in KCLRun) GetConditions() []metav1.Condition {
+	return in.Status.Conditions
+}
+
+// SetConditions sets the status conditions on the object.
+func (in KCLRun) SetConditions(conditions []metav1.Condition) {
+	in.Status.Conditions = conditions
 }
