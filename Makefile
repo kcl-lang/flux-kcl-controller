@@ -52,7 +52,7 @@ manifests: controller-gen
 
 # Run go tidy to cleanup go.mod
 tidy:
-	rm -f go.sum; go mod tidy -compat=1.20
+	rm -f go.sum; go mod tidy -compat=1.21
 
 # Run go fmt against code
 fmt:
