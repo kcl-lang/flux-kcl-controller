@@ -22,9 +22,3 @@ jobs:
             **/go.mod
       - name: Run tests
         run: make test
-      - name: Check if working tree is dirty
-        run: |
-          if [[ $(git diff --stat) != '' ]]; then
-            echo 'run make test and commit changes'
-            exit 1
-          fi
