@@ -1,5 +1,5 @@
 # Image URL to use all building/pushing image targets
-IMG ?= ghcr.io/kcl-lang/kcl-controller:latest
+IMG ?= ghcr.io/kcl-lang/flux-kcl-controller:latest
 # Produce CRDs that work back to Kubernetes 1.16
 CRD_OPTIONS ?= crd:crdVersions=v1
 
@@ -52,7 +52,7 @@ manifests: controller-gen
 
 # Run go tidy to cleanup go.mod
 tidy:
-	rm -f go.sum; go mod tidy -compat=1.20
+	rm -f go.sum; go mod tidy -compat=1.21
 
 # Run go fmt against code
 fmt:
