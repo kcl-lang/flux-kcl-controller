@@ -258,7 +258,7 @@ func (r *KCLRunReconciler) requestsForRevisionChangeOf() handler.MapFunc {
 func CompileKclPackage(pkgPath string) (*kcl.KCLResultList, error) {
 	kpmcli, _ := kclcli.NewKpmClient()
 	opts := opt.DefaultCompileOptions()
-	opts.SetHasSettingsYaml(true)
+
 	pkgPath, err := filepath.Abs(pkgPath)
 	if err != nil {
 		return nil, err
@@ -269,6 +269,7 @@ func CompileKclPackage(pkgPath string) (*kcl.KCLResultList, error) {
 	_, err = os.Stat(kclconf)
 	if err == nil {
 		opts.Option.Merge(kcl.WithSettings(kclconf))
+		opts.SetHasSettingsYaml(true)
 	}
 
 	return kpmcli.CompileWithOpts(opts)
