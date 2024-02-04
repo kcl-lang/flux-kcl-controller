@@ -4,5 +4,5 @@ resources:
 - deployment.yaml
 images:
 - name: kcl-controller
-  newName: ghcr.io/kcl-lang/kcl-controller
+  newName: ghcr.io/kcl-lang/flux-kcl-controller
   newTag: latest
