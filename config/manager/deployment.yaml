@@ -20,7 +20,7 @@ spec:
       terminationGracePeriodSeconds: 10
       containers:
         - name: manager
-          image: ghcr.io/kcl-lang/kcl-controller:latest
+          image: kcl-controller
           imagePullPolicy: Always
           securityContext:
             allowPrivilegeEscalation: false
