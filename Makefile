@@ -1,5 +1,5 @@
 # Image URL to use all building/pushing image targets
-IMG ?= ghcr.io/kcl-lang/flux-kcl-controller:latest
+IMG ?= ghcr.io/kcl-lang/flux-kcl-controller:v0.1.0
 # Produce CRDs that work back to Kubernetes 1.16
 CRD_OPTIONS ?= crd:crdVersions=v1
 
