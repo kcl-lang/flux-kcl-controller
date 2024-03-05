@@ -38,12 +38,12 @@ spec:
             - --enable-leader-election
           livenessProbe:
             httpGet:
-              port: http
-              path: /
+              port: http-prom
+              path: /metrics
           readinessProbe:
             httpGet:
-              port: http
-              path: /
+              port: http-prom
+              path: /metrics
           resources:
             limits:
               cpu: 1000m
