@@ -44,6 +44,7 @@ import (
 
 	// "github.com/fluxcd/pkg/runtime/predicates"
 	"github.com/fluxcd/pkg/ssa"
+	"github.com/fluxcd/pkg/ssa/utils"
 	"github.com/fluxcd/pkg/tar"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	sw "github.com/fluxcd/source-watcher/controllers"
@@ -99,7 +100,7 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, fmt.Errorf("failed to create temp dir, error: %w", err)
 	}
 	defer os.RemoveAll(tmpDir)
-	log.Info(fmt.Sprintf("fetching......"))
+	log.Info("fetching......")
 	// download and extract artifact
 	if err := r.artifactFetcher.Fetch(artifact.URL, artifact.Digest, tmpDir); err != nil {
 		conditions.MarkFalse(&kclRun, meta.ReadyCondition, "failed fetch artifacts", err.Error())
@@ -116,7 +117,7 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, err
 	}
 
-	u, err := ssa.ReadObjects(bytes.NewReader(([]byte(res.GetRawYamlResult()))))
+	u, err := utils.ReadObjects(bytes.NewReader(([]byte(res.GetRawYamlResult()))))
 	if err != nil {
 		conditions.MarkFalse(&kclRun, meta.ReadyCondition, "CompileFailed", err.Error())
 		log.Error(err, "failed to compile the yaml str into kubernetes manifests")
@@ -126,7 +127,7 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	log.Info(fmt.Sprintf("compile result %s", res.GetRawYamlResult()))
 
 	rm := ssa.NewResourceManager(r.Client, nil, ssa.Owner{
-		Field: "kcl-controler",
+		Field: "kcl-controller",
 		Group: kclRun.GroupVersionKind().Group,
 	})
 	rm.SetOwnerLabels(u, kclRun.GetName(), kclRun.GetNamespace())
