@@ -9,6 +9,7 @@
 The kcl-controller is a component developed for the integration of [KCL](https://github.com/kcl-lang/kcl) and [Flux](https://github.com/fluxcd/flux2), designed to orchestrate continuous delivery pipelines for infrastructure and workloads defined with KCL based on the [source-controller](https://github.com/fluxcd/source-controller) to acquire the KCL program from repositories.
 
 ![kcl-flux](./docs/img/kcl-flux.png)
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fkcl-lang%2Fflux-kcl-controller.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2Fkcl-lang%2Fflux-kcl-controller?ref=badge_shield)
 
 # Features
 
@@ -114,3 +115,7 @@ kcl-controller creates a `nginx-deployment-1` according to the KCL program in th
 # Roadmap
 
 - Add KCL OCI Registry Controller to support KCL programs stored in OCI registry.
+
+
+## License
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fkcl-lang%2Fflux-kcl-controller.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2Fkcl-lang%2Fflux-kcl-controller?ref=badge_large)
