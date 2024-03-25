@@ -13,7 +13,7 @@ require (
 	github.com/fluxcd/pkg/ssa v0.36.0
 	github.com/fluxcd/pkg/tar v0.4.0
 	github.com/fluxcd/source-controller/api v1.2.4
-	github.com/onsi/ginkgo/v2 v2.17.0
+	github.com/onsi/ginkgo/v2 v2.17.1
 	github.com/onsi/gomega v1.32.0
 	github.com/spf13/pflag v1.0.5
 	k8s.io/apimachinery v0.28.6
