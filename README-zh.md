@@ -1,4 +1,4 @@
-<h1 align="center">KCL controller</h1>
+<h1 align="center">Flux KCL controller</h1>
 
 <p align="center">
 <a href="./README.md">English</a> | <a href="./README-zh.md">简体中文</a>
@@ -7,7 +7,7 @@
 
 # 介绍
 
-kcl-controller 是一个组件，用于集成 [KCL](https://github.com/kcl-lang/kcl) 和 [Flux](https://github.com/fluxcd/flux2), 主要用来根据存储在 git/oci 仓库中的 KCL 程序定义的基础设施和工作负载，通过 [source-controller](https://github.com/fluxcd/source-controller) 获取 KCL 程序，实现基础设施和工作负载的持续交付。
+flux-kcl-controller 是一个组件，用于集成 [KCL](https://github.com/kcl-lang/kcl) 和 [Flux](https://github.com/fluxcd/flux2), 主要用来根据存储在 git/oci 仓库中的 KCL 程序定义的基础设施和工作负载，通过 [source-controller](https://github.com/fluxcd/source-controller) 获取 KCL 程序，实现基础设施和工作负载的持续交付。
 
 ![kcl-flux](./docs/img/kcl-flux.png)
 
