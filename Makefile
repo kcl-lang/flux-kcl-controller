@@ -57,7 +57,7 @@ manifests: controller-gen
 
 # Run go tidy to cleanup go.mod
 tidy:
-	rm -f go.sum; go mod tidy -compat=1.21
+	rm -f go.sum; go mod tidy
 
 # Run go fmt against code
 fmt:
@@ -92,7 +92,7 @@ manifests-release:
 
 # Find or download controller-gen
 CONTROLLER_GEN = $(shell pwd)/bin/controller-gen
-CONTROLLER_GEN_VERSION ?= v0.11.1
+CONTROLLER_GEN_VERSION ?= v0.14.0
 .PHONY: controller-gen
 controller-gen: ## Download controller-gen locally if necessary.
 	$(call go-install-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_GEN_VERSION))
