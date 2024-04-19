@@ -14,7 +14,7 @@ require (
 	github.com/fluxcd/pkg/tar v0.6.0
 	github.com/fluxcd/source-controller/api v1.2.5
 	github.com/onsi/ginkgo/v2 v2.17.1
-	github.com/onsi/gomega v1.32.0
+	github.com/onsi/gomega v1.33.0
 	github.com/spf13/pflag v1.0.5
 	k8s.io/apimachinery v0.29.3
 	k8s.io/client-go v0.29.3
@@ -182,7 +182,7 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.0 // indirect
 	golang.org/x/exp v0.0.0-20231206192017-f3f8817b8deb // indirect
-	golang.org/x/net v0.22.0 // indirect
+	golang.org/x/net v0.23.0 // indirect
 	golang.org/x/oauth2 v0.17.0 // indirect
 	golang.org/x/sys v0.18.0 // indirect
 	golang.org/x/term v0.18.0 // indirect
