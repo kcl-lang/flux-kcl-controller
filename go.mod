@@ -14,7 +14,7 @@ require (
 	github.com/fluxcd/pkg/tar v0.7.0
 	github.com/fluxcd/source-controller/api v1.2.5
 	github.com/onsi/ginkgo/v2 v2.17.2
-	github.com/onsi/gomega v1.33.0
+	github.com/onsi/gomega v1.33.1
 	github.com/spf13/pflag v1.0.5
 	k8s.io/apimachinery v0.30.0
 	k8s.io/client-go v0.30.0
