@@ -9,8 +9,8 @@ replace github.com/opencontainers/go-digest => github.com/opencontainers/go-dige
 require (
 	github.com/fluxcd/kustomize-controller/api v1.2.2
 	github.com/fluxcd/pkg/http/fetch v0.11.0
-	github.com/fluxcd/pkg/runtime v0.47.0
-	github.com/fluxcd/pkg/ssa v0.39.0
+	github.com/fluxcd/pkg/runtime v0.47.1
+	github.com/fluxcd/pkg/ssa v0.39.1
 	github.com/fluxcd/pkg/tar v0.7.0
 	github.com/fluxcd/source-controller/api v1.2.5
 	github.com/onsi/ginkgo/v2 v2.17.2
@@ -19,7 +19,7 @@ require (
 	k8s.io/apimachinery v0.30.0
 	k8s.io/client-go v0.30.0
 	kcl-lang.io/kcl-go v0.8.6
-	sigs.k8s.io/controller-runtime v0.18.0
+	sigs.k8s.io/controller-runtime v0.18.1
 )
 
 require (
