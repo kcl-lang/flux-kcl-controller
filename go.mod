@@ -12,7 +12,7 @@ require (
 	github.com/fluxcd/pkg/runtime v0.47.1
 	github.com/fluxcd/pkg/ssa v0.39.1
 	github.com/fluxcd/pkg/tar v0.7.0
-	github.com/fluxcd/source-controller/api v1.2.5
+	github.com/fluxcd/source-controller/api v1.3.0
 	github.com/onsi/ginkgo/v2 v2.17.2
 	github.com/onsi/gomega v1.33.1
 	github.com/spf13/pflag v1.0.5
@@ -59,6 +59,7 @@ require (
 	github.com/exponent-io/jsonpath v0.0.0-20210407135951-1de76d718b3f // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/fluxcd/cli-utils v0.36.0-flux.7 // indirect
+	github.com/fluxcd/pkg/apis/acl v0.3.0 // indirect
 	github.com/fluxcd/pkg/apis/kustomize v1.3.0 // indirect
 	github.com/go-errors/errors v1.5.1 // indirect
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 // indirect
