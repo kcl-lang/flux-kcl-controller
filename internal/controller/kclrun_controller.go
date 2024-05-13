@@ -47,6 +47,7 @@ import (
 	"github.com/fluxcd/pkg/ssa/utils"
 	"github.com/fluxcd/pkg/tar"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
+	sourcev1beta2 "github.com/fluxcd/source-controller/api/v1beta2"
 	sw "github.com/fluxcd/source-watcher/controllers"
 	"github.com/kcl-lang/kcl-controller/api/v1alpha1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -180,7 +181,16 @@ func (r *KCLRunReconciler) getSource(ctx context.Context,
 			return src, fmt.Errorf("unable to get source '%s': %w", namespacedName, err)
 		}
 		src = &repository
-		// TODO: get OCI registry Source
+	case sourcev1beta2.OCIRepositoryKind:
+		var repository sourcev1beta2.OCIRepository
+		err := r.Client.Get(ctx, namespacedName, &repository)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				return src, err
+			}
+			return src, fmt.Errorf("unable to get source '%s': %w", namespacedName, err)
+		}
+		src = &repository
 	default:
 		return src, fmt.Errorf("source `%s` kind '%s' not supported",
 			obj.Spec.SourceRef.Name, obj.Spec.SourceRef.Kind)
