@@ -1,0 +1,20 @@
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: OCIRepository
+metadata:
+  name: podinfo
+  namespace: default
+spec:
+  interval: 5m0s
+  url: oci://ghcr.io/kcl-lang/podinfo
+  ref:
+    tag: latest
+---
+apiVersion: krm.kcl.dev.fluxcd/v1alpha1
+kind: KCLRun
+metadata:
+  name: kcl-deployment
+  namespace: source-system
+spec:
+  sourceRef:
+    kind: OCIRepository
+    name: podinfo
