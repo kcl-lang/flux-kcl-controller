@@ -18,7 +18,7 @@ require (
 	github.com/spf13/pflag v1.0.5
 	k8s.io/apimachinery v0.30.0
 	k8s.io/client-go v0.30.0
-	kcl-lang.io/kcl-go v0.9.0-alpha.2
+	kcl-lang.io/kcl-go v0.9.0-beta.1
 	sigs.k8s.io/controller-runtime v0.18.2
 )
 
@@ -148,7 +148,7 @@ require (
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	k8s.io/cli-runtime v0.30.0 // indirect
 	k8s.io/kubectl v0.30.0 // indirect
-	kcl-lang.io/lib v0.9.0-alpha.2 // indirect
+	kcl-lang.io/lib v0.9.0-beta.1 // indirect
 	oras.land/oras-go v1.2.5 // indirect
 	oras.land/oras-go/v2 v2.5.0 // indirect
 	sigs.k8s.io/kustomize/api v0.17.1 // indirect
