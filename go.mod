@@ -216,7 +216,7 @@ require (
 	k8s.io/klog/v2 v2.120.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20240411171206-dc4e619f62f3 // indirect
 	k8s.io/utils v0.0.0-20240310230437-4693a0247e57 // indirect
-	kcl-lang.io/kpm v0.9.2
+	kcl-lang.io/kpm v0.9.3
 	sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.4.1 // indirect
 	sigs.k8s.io/yaml v1.4.0 // indirect
