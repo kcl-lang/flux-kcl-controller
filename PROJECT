@@ -3,7 +3,7 @@
 # and allow the plugins properly work.
 # More info: https://book.kubebuilder.io/reference/project-config.html
 domain: kcl-lang.io
-repo: github.com/kcl-lang/kcl-controller
+repo: github.com/kcl-lang/flux-kcl-controller
 resources:
 - api:
     crdVersion: v1
@@ -12,6 +12,6 @@ resources:
   domain: kcl-lang.io
   group: krm.kcl.dev.fluxcd
   kind: KCLRun
-  path: github.com/kcl-lang/kcl-controller/api/v1alpha1
+  path: github.com/kcl-lang/flux-kcl-controller/api/v1alpha1
   version: v1alpha1
 version: "3"

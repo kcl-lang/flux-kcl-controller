@@ -32,7 +32,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	krmkcldevfluxcdv1alpha1 "github.com/kcl-lang/kcl-controller/api/v1alpha1"
+	krmkcldevfluxcdv1alpha1 "github.com/kcl-lang/flux-kcl-controller/api/v1alpha1"
 	//+kubebuilder:scaffold:imports
 )
 

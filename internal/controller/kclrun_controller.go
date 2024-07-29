@@ -21,45 +21,88 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"kcl-lang.io/kcl-go/pkg/kcl"
-	kclcli "kcl-lang.io/kpm/pkg/client"
-	"kcl-lang.io/kpm/pkg/opt"
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/ratelimiter"
 
-	// "sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	securejoin "github.com/cyphar/filepath-securejoin"
+	"github.com/fluxcd/cli-utils/pkg/kstatus/polling"
 	"github.com/fluxcd/pkg/apis/meta"
 	"github.com/fluxcd/pkg/http/fetch"
+	runtimeClient "github.com/fluxcd/pkg/runtime/client"
 	"github.com/fluxcd/pkg/runtime/conditions"
 	"github.com/fluxcd/pkg/runtime/predicates"
+	"github.com/fluxcd/pkg/tar"
+	sw "github.com/fluxcd/source-watcher/controllers"
 
-	// "github.com/fluxcd/pkg/runtime/predicates"
+	helper "github.com/fluxcd/pkg/runtime/controller"
 	"github.com/fluxcd/pkg/ssa"
 	"github.com/fluxcd/pkg/ssa/utils"
-	"github.com/fluxcd/pkg/tar"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	sourcev1beta2 "github.com/fluxcd/source-controller/api/v1beta2"
-	sw "github.com/fluxcd/source-watcher/controllers"
-	"github.com/kcl-lang/kcl-controller/api/v1alpha1"
+	"github.com/kcl-lang/flux-kcl-controller/api/v1alpha1"
+	"github.com/kcl-lang/flux-kcl-controller/internal/kcl"
+	intpredicates "github.com/kcl-lang/flux-kcl-controller/internal/predicates"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
 // KCLRunReconciler reconciles a KCLRun object
 type KCLRunReconciler struct {
 	client.Client
-	Scheme          *runtime.Scheme
-	artifactFetcher *fetch.ArchiveFetcher
-	HttpRetry       int
+	helper.Metrics
+
+	StatusPoller     *polling.StatusPoller
+	PollingOpts      polling.Options
+	GetClusterConfig func() (*rest.Config, error)
+	ClientOpts       runtimeClient.Options
+	KubeConfigOpts   runtimeClient.KubeConfigOptions
+
+	DefaultServiceAccount string
+	artifactFetcher       *fetch.ArchiveFetcher
+}
+
+type KCLRunReconcilerOptions struct {
+	HTTPRetry   int
+	RateLimiter ratelimiter.RateLimiter
+}
+
+// SetupWithManager sets up the controller with the Manager.
+func (r *KCLRunReconciler) SetupWithManager(mgr ctrl.Manager, opts KCLRunReconcilerOptions) error {
+	// Setup the artifact fetcher
+	r.artifactFetcher = fetch.New(
+		fetch.WithRetries(opts.HTTPRetry),
+		fetch.WithMaxDownloadSize(tar.UnlimitedUntarSize),
+		fetch.WithUntar(tar.WithMaxUntarSize(tar.UnlimitedUntarSize)),
+		fetch.WithHostnameOverwrite(os.Getenv("SOURCE_CONTROLLER_LOCALHOST")),
+	)
+	// New controller
+	return ctrl.NewControllerManagedBy(mgr).
+		For(&v1alpha1.KCLRun{}, builder.WithPredicates(
+			predicate.Or(predicate.GenerationChangedPredicate{}, predicates.ReconcileRequestedPredicate{}),
+		)).
+		Watches(
+			&sourcev1.GitRepository{},
+			handler.EnqueueRequestsFromMapFunc(r.requestsForRevisionChangeOf()),
+			builder.WithPredicates(sw.GitRepositoryRevisionChangePredicate{}),
+		).
+		Watches(
+			&sourcev1beta2.OCIRepository{},
+			handler.EnqueueRequestsFromMapFunc(r.requestsForOCIRepositoryChange),
+			builder.WithPredicates(intpredicates.SourceRevisionChangePredicate{}),
+		).
+		WithOptions(controller.Options{
+			RateLimiter: opts.RateLimiter,
+		}).
+		Complete(r)
 }
 
 //+kubebuilder:rbac:groups=krm.kcl.dev.fluxcd,resources=kclruns,verbs=get;list;watch;create;update;patch;delete
@@ -78,7 +121,7 @@ type KCLRunReconciler struct {
 func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 
-	// get source object
+	// Get KCL source object
 	var kclRun v1alpha1.KCLRun
 	if err := r.Get(ctx, req.NamespacedName, &kclRun); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -88,14 +131,12 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	fmt.Printf("source: %v\n", source)
 	artifact := source.GetArtifact()
 	progressingMsg := fmt.Sprintf("new revision detected %s", artifact.Revision)
 	log.Info(progressingMsg)
 	conditions.MarkUnknown(&kclRun, meta.ReadyCondition, meta.ProgressingReason, "Reconciliation in progress")
 	conditions.MarkReconciling(&kclRun, meta.ProgressingReason, progressingMsg)
-
-	// create tmp dir
+	// Create tmp dir
 	tmpDir, err := os.MkdirTemp("", kclRun.Name)
 	if err != nil {
 		conditions.MarkFalse(&kclRun, meta.ReadyCondition, sourcev1.DirCreationFailedReason, err.Error())
@@ -103,51 +144,72 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 	defer os.RemoveAll(tmpDir)
 	log.Info("fetching......")
-	// download and extract artifact
+	// Download and extract artifact
 	if err := r.artifactFetcher.Fetch(artifact.URL, artifact.Digest, tmpDir); err != nil {
 		conditions.MarkFalse(&kclRun, meta.ReadyCondition, "failed fetch artifacts", err.Error())
 		log.Error(err, "unable to fetch artifact")
 		return ctrl.Result{}, err
 	}
-
-	// check build path exists
+	// Check build path exists
 	dirPath, err := securejoin.SecureJoin(tmpDir, kclRun.Spec.Path)
 	if err != nil {
 		conditions.MarkFalse(&kclRun, meta.ReadyCondition, meta.ArtifactFailedReason, "%s", err)
 		return ctrl.Result{}, err
 	}
-
 	if _, err := os.Stat(dirPath); err != nil {
 		err = fmt.Errorf("KCL package path not found: %w", err)
 		conditions.MarkFalse(&kclRun, meta.ReadyCondition, meta.ArtifactFailedReason, "%s", err)
 		return ctrl.Result{}, err
 	}
-
 	// Compile the KCL source code into the Kubernetes manifests
-	res, err := CompileKclPackage(dirPath)
-
+	res, err := kcl.CompileKclPackage(dirPath)
 	if err != nil {
 		conditions.MarkFalse(&kclRun, meta.ReadyCondition, "FetchFailed", err.Error())
 		log.Error(err, "failed to compile the KCL source code")
 		return ctrl.Result{}, err
 	}
-
 	u, err := utils.ReadObjects(bytes.NewReader(([]byte(res.GetRawYamlResult()))))
 	if err != nil {
 		conditions.MarkFalse(&kclRun, meta.ReadyCondition, "CompileFailed", err.Error())
 		log.Error(err, "failed to compile the yaml str into kubernetes manifests")
 		return ctrl.Result{}, err
 	}
-
 	log.Info(fmt.Sprintf("compile result %s", res.GetRawYamlResult()))
 
-	rm := ssa.NewResourceManager(r.Client, nil, ssa.Owner{
+	// Configure the Kubernetes client for impersonation.
+	impersonation := runtimeClient.NewImpersonator(
+		r.Client,
+		r.StatusPoller,
+		r.PollingOpts,
+		kclRun.Spec.KubeConfig,
+		r.KubeConfigOpts,
+		r.DefaultServiceAccount,
+		kclRun.Spec.ServiceAccountName,
+		kclRun.GetNamespace(),
+	)
+	// Create the Kubernetes client that runs under impersonation.
+	kubeClient, statusPoller, err := impersonation.GetClient(ctx)
+	if err != nil {
+		conditions.MarkFalse(&kclRun, meta.ReadyCondition, meta.ReconciliationFailedReason, "%s", err)
+		return ctrl.Result{}, fmt.Errorf("failed to build kube client: %w", err)
+	}
+
+	if err != nil {
+		conditions.MarkFalse(&kclRun, meta.ReadyCondition, "RESTClientError", "%s", err)
+		return ctrl.Result{}, err
+	}
+	// Remove any stale corresponding Ready=False condition with Unknown.
+	if conditions.HasAnyReason(&kclRun, meta.ReadyCondition, "RESTClientError") {
+		conditions.MarkUnknown(&kclRun, meta.ReadyCondition, meta.ProgressingReason, "reconciliation in progress")
+	}
+
+	rm := ssa.NewResourceManager(kubeClient, statusPoller, ssa.Owner{
 		Field: "kcl-controller",
 		Group: kclRun.GroupVersionKind().Group,
 	})
 	rm.SetOwnerLabels(u, kclRun.GetName(), kclRun.GetNamespace())
 
-	// apply the manifests
+	// Apply the manifests
 	log.Info(fmt.Sprintf("applying %s", kclRun.GetName()))
 
 	_, err = rm.ApplyAll(ctx, u, ssa.DefaultApplyOptions())
@@ -158,11 +220,13 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 
 	log.Info("successfully applied kcl resources")
+	// Set last applied revision.
 	kclRun.Status.LastAttemptedRevision = artifact.Revision
 
+	// Mark the object as ready.
 	conditions.MarkTrue(&kclRun,
 		meta.ReadyCondition,
-		"ReconciliationSucceeded",
+		meta.ReconciliationSucceededReason,
 		fmt.Sprintf("Applied revision: %s", artifact.Revision))
 
 	if err := r.Status().Update(ctx, &kclRun); err != nil {
@@ -212,27 +276,6 @@ func (r *KCLRunReconciler) getSource(ctx context.Context,
 	return src, nil
 }
 
-// SetupWithManager sets up the controller with the Manager.
-func (r *KCLRunReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	r.artifactFetcher = fetch.NewArchiveFetcher(
-		r.HttpRetry,
-		tar.UnlimitedUntarSize,
-		tar.UnlimitedUntarSize,
-		os.Getenv("SOURCE_CONTROLLER_LOCALHOST"),
-	)
-
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&v1alpha1.KCLRun{}, builder.WithPredicates(
-			predicate.Or(predicate.GenerationChangedPredicate{}, predicates.ReconcileRequestedPredicate{}),
-		)).
-		Watches(
-			&sourcev1.GitRepository{},
-			handler.EnqueueRequestsFromMapFunc(r.requestsForRevisionChangeOf()),
-			builder.WithPredicates(sw.GitRepositoryRevisionChangePredicate{}),
-		).
-		Complete(r)
-}
-
 func (r *KCLRunReconciler) requestsForRevisionChangeOf() handler.MapFunc {
 	return func(ctx context.Context, obj client.Object) []reconcile.Request {
 		log := ctrl.LoggerFrom(ctx)
@@ -258,7 +301,7 @@ func (r *KCLRunReconciler) requestsForRevisionChangeOf() handler.MapFunc {
 		var reqs []reconcile.Request
 		for i, d := range list.Items {
 			log.Info(fmt.Sprintf("d: %v\n", d))
-			// If the Kustomization is ready and the revision of the artifact equals
+			// If the KCL source is ready and the revision of the artifact equals
 			// to the last attempted revision, we should not make a request for this Kustomization
 			if conditions.IsReady(&list.Items[i]) &&
 				repo.Name == d.Spec.SourceRef.Name &&
@@ -280,24 +323,42 @@ func (r *KCLRunReconciler) requestsForRevisionChangeOf() handler.MapFunc {
 	}
 }
 
-// TODO: This is a temporary function to compile the KCL source code into kubernetes manifests
-// The api of compiling the KCL source code will be updated in the future to fix the issue
-func CompileKclPackage(pkgPath string) (*kcl.KCLResultList, error) {
-	kpmcli, _ := kclcli.NewKpmClient()
-	opts := opt.DefaultCompileOptions()
-
-	pkgPath, err := filepath.Abs(pkgPath)
-	if err != nil {
-		return nil, err
+func (r *KCLRunReconciler) requestsForOCIRepositoryChange(ctx context.Context, o client.Object) []reconcile.Request {
+	or, ok := o.(*sourcev1beta2.OCIRepository)
+	if !ok {
+		err := fmt.Errorf("expected an OCIRepository, got %T", o)
+		ctrl.LoggerFrom(ctx).Error(err, "failed to get requests for OCIRepository change")
+		return nil
 	}
-	opts.SetPkgPath(pkgPath)
-	// check if the kcl.yaml exists in the pkgPath
-	kclconf := filepath.Join(pkgPath, "kcl.yaml")
-	_, err = os.Stat(kclconf)
-	if err == nil {
-		opts.Option.Merge(kcl.WithSettings(kclconf))
-		opts.SetHasSettingsYaml(true)
+	// If we do not have an artifact, we have no requests to make
+	if or.GetArtifact() == nil {
+		return nil
 	}
 
-	return kpmcli.CompileWithOpts(opts)
+	var list v1alpha1.KCLRunList
+	if err := r.List(ctx, &list, client.MatchingFields{
+		".metadata.source": client.ObjectKeyFromObject(or).String(),
+	}); err != nil {
+		ctrl.LoggerFrom(ctx).Error(err, "failed to list HelmReleases for OCIRepository change")
+		return nil
+	}
+
+	var reqs []reconcile.Request
+	for i, hr := range list.Items {
+		// If the HelmRelease is ready and the digest of the artifact equals to the
+		// last attempted revision digest, we should not make a request for this HelmRelease,
+		// likewise if we cannot retrieve the artifact digest.
+		digest := extractDigest(or.GetArtifact().Revision)
+		if digest == "" {
+			ctrl.LoggerFrom(ctx).Error(fmt.Errorf("wrong digest for %T", or), "failed to get requests for OCIRepository change")
+			continue
+		}
+
+		if digest == hr.Status.LastAttemptedRevisionDigest {
+			continue
+		}
+
+		reqs = append(reqs, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&list.Items[i])})
+	}
+	return reqs
 }
