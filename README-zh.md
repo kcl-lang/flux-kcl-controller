@@ -45,7 +45,7 @@ k3d cluster create -c mycluster.yaml
 clone 本仓库到本地：
 
 ```shell
-git clone https://github.com/kcl-lang/kcl-controller.git
+git clone https://github.com/kcl-lang/flux-kcl-controller.git
 ```
 
 进入到本仓库的根目录：

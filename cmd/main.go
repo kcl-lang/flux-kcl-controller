@@ -27,13 +27,18 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
+	"github.com/fluxcd/cli-utils/pkg/kstatus/polling"
+	"github.com/fluxcd/cli-utils/pkg/kstatus/polling/engine"
+	"github.com/fluxcd/pkg/runtime/client"
 	"github.com/fluxcd/pkg/runtime/logger"
+	"github.com/fluxcd/pkg/runtime/metrics"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
+	sourcev1beta2 "github.com/fluxcd/source-controller/api/v1beta2"
 
-	// "github.com/kcl-lang/kcl-controller/controllers"
-
-	krmkcldevfluxcdv1alpha1 "github.com/kcl-lang/kcl-controller/api/v1alpha1"
-	"github.com/kcl-lang/kcl-controller/internal/controller"
+	helper "github.com/fluxcd/pkg/runtime/controller"
+	krmkcldevfluxcdv1alpha1 "github.com/kcl-lang/flux-kcl-controller/api/v1alpha1"
+	"github.com/kcl-lang/flux-kcl-controller/internal/controller"
+	"github.com/kcl-lang/flux-kcl-controller/internal/statusreaders"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -44,18 +49,28 @@ var (
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	// GitRepository
 	utilruntime.Must(sourcev1.AddToScheme(scheme))
-
+	// OCIRepository
+	utilruntime.Must(sourcev1beta2.AddToScheme(scheme))
+	// KCLRun
 	utilruntime.Must(krmkcldevfluxcdv1alpha1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
 func main() {
 	var (
-		metricsAddr          string
-		enableLeaderElection bool
-		httpRetry            int
-		logOptions           logger.Options
+		metricsAddr           string
+		enableLeaderElection  bool
+		httpRetry             int
+		defaultServiceAccount string
+		logOptions            logger.Options
+
+		clientOptions  client.Options
+		kubeConfigOpts client.KubeConfigOptions
+
+		rateLimiterOptions helper.RateLimiterOptions
+		watchOptions       helper.WatchOptions
 	)
 
 	flag.StringVar(&metricsAddr, "metrics-addr", ":8083", "The address the metric endpoint binds to.")
@@ -63,9 +78,17 @@ func main() {
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
 	flag.IntVar(&httpRetry, "http-retry", 9, "The maximum number of retries when failing to fetch artifacts over HTTP.")
-	logOptions.BindFlags(flag.CommandLine)
-	flag.Parse()
+	flag.StringVar(&defaultServiceAccount, "default-service-account", "",
+		"Default service account used for impersonation.")
 
+	clientOptions.BindFlags(flag.CommandLine)
+	logOptions.BindFlags(flag.CommandLine)
+	rateLimiterOptions.BindFlags(flag.CommandLine)
+	kubeConfigOpts.BindFlags(flag.CommandLine)
+	watchOptions.BindFlags(flag.CommandLine)
+	logOptions.BindFlags(flag.CommandLine)
+
+	flag.Parse()
 	ctrl.SetLogger(logger.NewLogger(logOptions))
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
@@ -80,18 +103,24 @@ func main() {
 		os.Exit(1)
 	}
 
-	// if err = (&controllers.GitRepositoryController{
-	// 	Client:    mgr.GetClient(),
-	// 	HttpRetry: httpRetry,
-	// }).SetupWithManager(mgr); err != nil {
-	// 	setupLog.Error(err, "unable to create controller", "controller", "GitRepositoryWatcher")
-	// 	os.Exit(1)
-	// }
+	jobStatusReader := statusreaders.NewCustomJobStatusReader(mgr.GetRESTMapper())
+	pollingOpts := polling.Options{
+		CustomStatusReaders: []engine.StatusReader{jobStatusReader},
+	}
 
 	if err = (&controller.KCLRunReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(mgr); err != nil {
+		DefaultServiceAccount: defaultServiceAccount,
+		Client:                mgr.GetClient(),
+		Metrics:               helper.NewMetrics(mgr, metrics.MustMakeRecorder(), "finalizers.krm.kcl.dev.fluxcd"),
+		GetClusterConfig:      ctrl.GetConfig,
+		ClientOpts:            clientOptions,
+		KubeConfigOpts:        kubeConfigOpts,
+		PollingOpts:           pollingOpts,
+		StatusPoller:          polling.NewStatusPoller(mgr.GetClient(), mgr.GetRESTMapper(), pollingOpts),
+	}).SetupWithManager(mgr, controller.KCLRunReconcilerOptions{
+		HTTPRetry:   httpRetry,
+		RateLimiter: helper.GetRateLimiter(rateLimiterOptions),
+	}); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "KCLRun")
 		os.Exit(1)
 	}
