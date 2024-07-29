@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Flux authors
+Copyright The KCL authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -37,6 +37,7 @@ import (
 	// "sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	securejoin "github.com/cyphar/filepath-securejoin"
 	"github.com/fluxcd/pkg/apis/meta"
 	"github.com/fluxcd/pkg/http/fetch"
 	"github.com/fluxcd/pkg/runtime/conditions"
@@ -109,8 +110,21 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, err
 	}
 
-	// compile the KCL source code into the kubenretes manifests
-	res, err := CompileKclPackage(tmpDir)
+	// check build path exists
+	dirPath, err := securejoin.SecureJoin(tmpDir, kclRun.Spec.Path)
+	if err != nil {
+		conditions.MarkFalse(&kclRun, meta.ReadyCondition, meta.ArtifactFailedReason, "%s", err)
+		return ctrl.Result{}, err
+	}
+
+	if _, err := os.Stat(dirPath); err != nil {
+		err = fmt.Errorf("KCL package path not found: %w", err)
+		conditions.MarkFalse(&kclRun, meta.ReadyCondition, meta.ArtifactFailedReason, "%s", err)
+		return ctrl.Result{}, err
+	}
+
+	// Compile the KCL source code into the Kubernetes manifests
+	res, err := CompileKclPackage(dirPath)
 
 	if err != nil {
 		conditions.MarkFalse(&kclRun, meta.ReadyCondition, "FetchFailed", err.Error())
