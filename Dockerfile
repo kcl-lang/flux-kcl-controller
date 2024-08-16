@@ -28,9 +28,7 @@ ENV CGO_ENABLED=0
 RUN xx-go build -a -o kcl-controller cmd/main.go
 
 FROM kcllang/kcl
-# FROM alpine:3.19
 
-# RUN apk add --no-cache ca-certificates tini
 RUN apt-get update && apt-get install -y ca-certificates tini
 
 COPY --from=builder /workspace/kcl-controller /usr/local/bin/
