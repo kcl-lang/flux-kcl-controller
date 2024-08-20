@@ -1,6 +1,10 @@
 package controller
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/fluxcd/pkg/ssa"
+)
 
 func extractDigest(revision string) string {
 	if strings.Contains(revision, "@") {
@@ -13,5 +17,18 @@ func extractDigest(revision string) string {
 	} else {
 		// revision in the <algorithm>:<digest> format
 		return revision
+	}
+}
+
+// HasChanged evaluates the given action and returns true
+// if the action type matches a resource mutation or deletion.
+func HasChanged(action ssa.Action) bool {
+	switch action {
+	case ssa.SkippedAction:
+		return false
+	case ssa.UnchangedAction:
+		return false
+	default:
+		return true
 	}
 }

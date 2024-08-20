@@ -112,7 +112,3 @@ nginx-deployment-1   1/1     1            0           4s
 ```
 
 kcl-controller creates a `nginx-deployment-1` according to the KCL program in the repository.
-
-git tag v0.3.1
-git push origin v0.3.1
-gh release create v0.3.1 --draft --generate-notes --title "v0.3.1 Release"

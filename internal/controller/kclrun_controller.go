@@ -21,7 +21,11 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
+	"strings"
+	"time"
 
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -35,20 +39,31 @@ import (
 
 	securejoin "github.com/cyphar/filepath-securejoin"
 	"github.com/fluxcd/cli-utils/pkg/kstatus/polling"
+	"github.com/fluxcd/cli-utils/pkg/object"
+	eventv1 "github.com/fluxcd/pkg/apis/event/v1beta1"
 	"github.com/fluxcd/pkg/apis/meta"
 	"github.com/fluxcd/pkg/http/fetch"
 	runtimeClient "github.com/fluxcd/pkg/runtime/client"
 	"github.com/fluxcd/pkg/runtime/conditions"
+	"github.com/fluxcd/pkg/runtime/patch"
 	"github.com/fluxcd/pkg/runtime/predicates"
+	ssautil "github.com/fluxcd/pkg/ssa/utils"
 	"github.com/fluxcd/pkg/tar"
 	sw "github.com/fluxcd/source-watcher/controllers"
+	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	kerrors "k8s.io/apimachinery/pkg/util/errors"
+	kuberecorder "k8s.io/client-go/tools/record"
 
 	helper "github.com/fluxcd/pkg/runtime/controller"
 	"github.com/fluxcd/pkg/ssa"
+	"github.com/fluxcd/pkg/ssa/normalize"
 	"github.com/fluxcd/pkg/ssa/utils"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	sourcev1beta2 "github.com/fluxcd/source-controller/api/v1beta2"
 	"github.com/kcl-lang/flux-kcl-controller/api/v1alpha1"
+	"github.com/kcl-lang/flux-kcl-controller/internal/inventory"
 	"github.com/kcl-lang/flux-kcl-controller/internal/kcl"
 	intpredicates "github.com/kcl-lang/flux-kcl-controller/internal/predicates"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -57,16 +72,21 @@ import (
 // KCLRunReconciler reconciles a KCLRun object
 type KCLRunReconciler struct {
 	client.Client
+	kuberecorder.EventRecorder
 	helper.Metrics
 
+	ControllerName   string
 	StatusPoller     *polling.StatusPoller
 	PollingOpts      polling.Options
 	GetClusterConfig func() (*rest.Config, error)
 	ClientOpts       runtimeClient.Options
 	KubeConfigOpts   runtimeClient.KubeConfigOptions
 
-	DefaultServiceAccount string
-	artifactFetcher       *fetch.ArchiveFetcher
+	DefaultServiceAccount   string
+	DisallowedFieldManagers []string
+	artifactFetcher         *fetch.ArchiveFetcher
+
+	statusManager string
 }
 
 type KCLRunReconcilerOptions struct {
@@ -82,6 +102,7 @@ func (r *KCLRunReconciler) SetupWithManager(mgr ctrl.Manager, opts KCLRunReconci
 		fetch.WithUntar(tar.WithMaxUntarSize(tar.UnlimitedUntarSize)),
 		fetch.WithHostnameOverwrite(os.Getenv("SOURCE_CONTROLLER_LOCALHOST")),
 	)
+	r.statusManager = "gotk-flux-kcl-controller"
 	// New controller
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.KCLRun{}, builder.WithPredicates(
@@ -122,6 +143,9 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	if err := r.Get(ctx, req.NamespacedName, &kclRun); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+
+	// Initialize the runtime patcher with the current version of the object.
+	patcher := patch.NewSerialPatcher(&kclRun, r.Client)
 
 	source, err := r.getSource(ctx, &kclRun)
 	if err != nil {
@@ -164,7 +188,7 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		log.Error(err, "failed to compile the KCL source code")
 		return ctrl.Result{}, err
 	}
-	u, err := utils.ReadObjects(bytes.NewReader(([]byte(res.GetRawYamlResult()))))
+	objects, err := utils.ReadObjects(bytes.NewReader(([]byte(res.GetRawYamlResult()))))
 	if err != nil {
 		conditions.MarkFalse(&kclRun, meta.ReadyCondition, "CompileFailed", err.Error())
 		log.Error(err, "failed to compile the yaml str into kubernetes manifests")
@@ -203,12 +227,12 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		Field: "kcl-controller",
 		Group: kclRun.GroupVersionKind().Group,
 	})
-	rm.SetOwnerLabels(u, kclRun.GetName(), kclRun.GetNamespace())
+	rm.SetOwnerLabels(objects, kclRun.GetName(), kclRun.GetNamespace())
 
 	// Apply the manifests
 	log.Info(fmt.Sprintf("applying %s", kclRun.GetName()))
-
-	_, err = rm.ApplyAll(ctx, u, ssa.DefaultApplyOptions())
+	// Validate and apply resources in stages.
+	drifted, changeSet, err := r.apply(ctx, rm, &kclRun, artifact.Revision, objects)
 	if err != nil {
 		conditions.MarkFalse(&kclRun, meta.ReadyCondition, "ApplyFailed", err.Error())
 		err = fmt.Errorf("failed to run server-side apply: %w", err)
@@ -216,8 +240,23 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 
 	log.Info("successfully applied kcl resources")
+
+	// Run the health checks for the last applied resources.
+	isNewRevision := !source.GetArtifact().HasRevision(kclRun.Status.LastAppliedRevision)
+	if err := r.checkHealth(ctx,
+		rm,
+		patcher,
+		&kclRun,
+		artifact.Revision,
+		isNewRevision,
+		drifted,
+		changeSet.ToObjMetadataSet()); err != nil {
+		conditions.MarkFalse(&kclRun, meta.ReadyCondition, meta.HealthCheckFailedReason, "%s", err)
+		return ctrl.Result{}, err
+	}
+
 	// Set last applied revision.
-	kclRun.Status.LastAttemptedRevision = artifact.Revision
+	kclRun.Status.LastAppliedRevision = artifact.Revision
 
 	// Mark the object as ready.
 	conditions.MarkTrue(&kclRun,
@@ -357,4 +396,321 @@ func (r *KCLRunReconciler) requestsForOCIRepositoryChange(ctx context.Context, o
 		reqs = append(reqs, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&list.Items[i])})
 	}
 	return reqs
+}
+
+func (r *KCLRunReconciler) checkHealth(ctx context.Context,
+	manager *ssa.ResourceManager,
+	patcher *patch.SerialPatcher,
+	obj *v1alpha1.KCLRun,
+	revision string,
+	isNewRevision bool,
+	drifted bool,
+	objects object.ObjMetadataSet) error {
+	if len(obj.Spec.HealthChecks) == 0 && !obj.Spec.Wait {
+		conditions.Delete(obj, meta.HealthyCondition)
+		return nil
+	}
+
+	checkStart := time.Now()
+	var err error
+	if !obj.Spec.Wait {
+		objects, err = inventory.ReferenceToObjMetadataSet(obj.Spec.HealthChecks)
+		if err != nil {
+			return err
+		}
+	}
+
+	if len(objects) == 0 {
+		conditions.Delete(obj, meta.HealthyCondition)
+		return nil
+	}
+
+	// Guard against deadlock (waiting on itself).
+	var toCheck []object.ObjMetadata
+	for _, o := range objects {
+		if o.GroupKind.Kind == v1alpha1.KCLRunKind &&
+			o.Name == obj.GetName() &&
+			o.Namespace == obj.GetNamespace() {
+			continue
+		}
+		toCheck = append(toCheck, o)
+	}
+
+	// Find the previous health check result.
+	wasHealthy := apimeta.IsStatusConditionTrue(obj.Status.Conditions, meta.HealthyCondition)
+
+	// Update status with the reconciliation progress.
+	message := fmt.Sprintf("Running health checks for revision %s with a timeout of %s", revision, obj.GetTimeout().String())
+	conditions.MarkReconciling(obj, meta.ProgressingReason, "%s", message)
+	conditions.MarkUnknown(obj, meta.HealthyCondition, meta.ProgressingReason, "%s", message)
+	if err := r.patch(ctx, obj, patcher); err != nil {
+		return fmt.Errorf("unable to update the healthy status to progressing: %w", err)
+	}
+
+	// Check the health with a default timeout of 30sec shorter than the reconciliation interval.
+	if err := manager.WaitForSet(toCheck, ssa.WaitOptions{
+		Interval: 5 * time.Second,
+		Timeout:  obj.GetTimeout(),
+	}); err != nil {
+		conditions.MarkFalse(obj, meta.ReadyCondition, meta.HealthCheckFailedReason, "%s", err)
+		conditions.MarkFalse(obj, meta.HealthyCondition, meta.HealthCheckFailedReason, "%s", err)
+		return fmt.Errorf("health check failed after %s: %w", time.Since(checkStart).String(), err)
+	}
+
+	// Emit recovery event if the previous health check failed.
+	msg := fmt.Sprintf("Health check passed in %s", time.Since(checkStart).String())
+	if !wasHealthy || (isNewRevision && drifted) {
+		r.event(obj, revision, eventv1.EventSeverityInfo, msg, nil)
+	}
+
+	conditions.MarkTrue(obj, meta.HealthyCondition, meta.SucceededReason, "%s", msg)
+	if err := r.patch(ctx, obj, patcher); err != nil {
+		return fmt.Errorf("unable to update the healthy status to progressing: %w", err)
+	}
+
+	return nil
+}
+
+func (r *KCLRunReconciler) event(obj *v1alpha1.KCLRun,
+	revision, severity, msg string,
+	metadata map[string]string) {
+	if metadata == nil {
+		metadata = map[string]string{}
+	}
+	if revision != "" {
+		metadata[v1alpha1.GroupVersion.Group+"/revision"] = revision
+	}
+
+	reason := severity
+	if r := conditions.GetReason(obj, meta.ReadyCondition); r != "" {
+		reason = r
+	}
+
+	eventtype := "Normal"
+	if severity == eventv1.EventSeverityError {
+		eventtype = "Warning"
+	}
+
+	r.EventRecorder.AnnotatedEventf(obj, metadata, eventtype, reason, msg)
+}
+
+func (r *KCLRunReconciler) apply(ctx context.Context,
+	manager *ssa.ResourceManager,
+	obj *v1alpha1.KCLRun,
+	revision string,
+	objects []*unstructured.Unstructured) (bool, *ssa.ChangeSet, error) {
+	log := ctrl.LoggerFrom(ctx)
+
+	if err := normalize.UnstructuredList(objects); err != nil {
+		return false, nil, err
+	}
+
+	if cmeta := obj.Spec.CommonMetadata; cmeta != nil {
+		ssautil.SetCommonMetadata(objects, cmeta.Labels, cmeta.Annotations)
+	}
+
+	applyOpts := ssa.DefaultApplyOptions()
+	applyOpts.Force = obj.Spec.Force
+	applyOpts.ExclusionSelector = map[string]string{
+		fmt.Sprintf("%s/reconcile", v1alpha1.GroupVersion.Group): v1alpha1.DisabledValue,
+		fmt.Sprintf("%s/ssa", v1alpha1.GroupVersion.Group):       v1alpha1.IgnoreValue,
+	}
+	applyOpts.IfNotPresentSelector = map[string]string{
+		fmt.Sprintf("%s/ssa", v1alpha1.GroupVersion.Group): v1alpha1.IfNotPresentValue,
+	}
+	applyOpts.ForceSelector = map[string]string{
+		fmt.Sprintf("%s/force", v1alpha1.GroupVersion.Group): v1alpha1.EnabledValue,
+	}
+
+	fieldManagers := []ssa.FieldManager{
+		{
+			// to undo changes made with 'kubectl apply --server-side --force-conflicts'
+			Name:          "kubectl",
+			OperationType: metav1.ManagedFieldsOperationApply,
+		},
+		{
+			// to undo changes made with 'kubectl apply'
+			Name:          "kubectl",
+			OperationType: metav1.ManagedFieldsOperationUpdate,
+		},
+		{
+			// to undo changes made with 'kubectl apply'
+			Name:          "before-first-apply",
+			OperationType: metav1.ManagedFieldsOperationUpdate,
+		},
+		{
+			// to undo changes made by the controller before SSA
+			Name:          r.ControllerName,
+			OperationType: metav1.ManagedFieldsOperationUpdate,
+		},
+	}
+
+	for _, fieldManager := range r.DisallowedFieldManagers {
+		fieldManagers = append(fieldManagers, ssa.FieldManager{
+			Name:          fieldManager,
+			OperationType: metav1.ManagedFieldsOperationApply,
+		})
+		// to undo changes made by the controller before SSA
+		fieldManagers = append(fieldManagers, ssa.FieldManager{
+			Name:          fieldManager,
+			OperationType: metav1.ManagedFieldsOperationUpdate,
+		})
+	}
+
+	applyOpts.Cleanup = ssa.ApplyCleanupOptions{
+		Annotations: []string{
+			// remove the kubectl annotation
+			corev1.LastAppliedConfigAnnotation,
+			// remove deprecated fluxcd.io annotations
+			"kustomize.toolkit.fluxcd.io/checksum",
+			"fluxcd.io/sync-checksum",
+		},
+		Labels: []string{
+			// remove deprecated fluxcd.io labels
+			"fluxcd.io/sync-gc-mark",
+		},
+		FieldManagers: fieldManagers,
+		Exclusions: map[string]string{
+			fmt.Sprintf("%s/ssa", v1alpha1.GroupVersion.Group): v1alpha1.MergeValue,
+		},
+	}
+
+	// contains only CRDs and Namespaces
+	var defStage []*unstructured.Unstructured
+
+	// contains only Kubernetes Class types e.g.: RuntimeClass, PriorityClass,
+	// StorageClass, VolumeSnapshotClass, IngressClass, GatewayClass, ClusterClass, etc
+	var classStage []*unstructured.Unstructured
+
+	// contains all objects except for CRDs, Namespaces and Class type objects
+	var resStage []*unstructured.Unstructured
+
+	// contains the objects' metadata after apply
+	resultSet := ssa.NewChangeSet()
+
+	for _, u := range objects {
+		switch {
+		case ssautil.IsClusterDefinition(u):
+			defStage = append(defStage, u)
+		case strings.HasSuffix(u.GetKind(), "Class"):
+			classStage = append(classStage, u)
+		default:
+			resStage = append(resStage, u)
+		}
+
+	}
+
+	var changeSetLog strings.Builder
+
+	// validate, apply and wait for CRDs and Namespaces to register
+	if len(defStage) > 0 {
+		changeSet, err := manager.ApplyAll(ctx, defStage, applyOpts)
+		if err != nil {
+			return false, nil, err
+		}
+
+		if changeSet != nil && len(changeSet.Entries) > 0 {
+			resultSet.Append(changeSet.Entries)
+
+			log.Info("server-side apply for cluster definitions completed", "output", changeSet.ToMap())
+			for _, change := range changeSet.Entries {
+				if HasChanged(change.Action) {
+					changeSetLog.WriteString(change.String() + "\n")
+				}
+			}
+
+			if err := manager.WaitForSet(changeSet.ToObjMetadataSet(), ssa.WaitOptions{
+				Interval: 2 * time.Second,
+				Timeout:  obj.GetTimeout(),
+			}); err != nil {
+				return false, nil, err
+			}
+		}
+	}
+
+	// validate, apply and wait for Class type objects to register
+	if len(classStage) > 0 {
+		changeSet, err := manager.ApplyAll(ctx, classStage, applyOpts)
+		if err != nil {
+			return false, nil, err
+		}
+
+		if changeSet != nil && len(changeSet.Entries) > 0 {
+			resultSet.Append(changeSet.Entries)
+
+			log.Info("server-side apply for cluster class types completed", "output", changeSet.ToMap())
+			for _, change := range changeSet.Entries {
+				if HasChanged(change.Action) {
+					changeSetLog.WriteString(change.String() + "\n")
+				}
+			}
+
+			if err := manager.WaitForSet(changeSet.ToObjMetadataSet(), ssa.WaitOptions{
+				Interval: 2 * time.Second,
+				Timeout:  obj.GetTimeout(),
+			}); err != nil {
+				return false, nil, err
+			}
+		}
+	}
+
+	// sort by kind, validate and apply all the others objects
+	sort.Sort(ssa.SortableUnstructureds(resStage))
+	if len(resStage) > 0 {
+		changeSet, err := manager.ApplyAll(ctx, resStage, applyOpts)
+		if err != nil {
+			return false, nil, fmt.Errorf("%w\n%s", err, changeSetLog.String())
+		}
+
+		if changeSet != nil && len(changeSet.Entries) > 0 {
+			resultSet.Append(changeSet.Entries)
+
+			log.Info("server-side apply completed", "output", changeSet.ToMap(), "revision", revision)
+			for _, change := range changeSet.Entries {
+				if HasChanged(change.Action) {
+					changeSetLog.WriteString(change.String() + "\n")
+				}
+			}
+		}
+	}
+
+	// emit event only if the server-side apply resulted in changes
+	applyLog := strings.TrimSuffix(changeSetLog.String(), "\n")
+	if applyLog != "" {
+		r.event(obj, revision, eventv1.EventSeverityInfo, applyLog, nil)
+	}
+
+	return applyLog != "", resultSet, nil
+}
+
+func (r *KCLRunReconciler) patch(ctx context.Context,
+	obj *v1alpha1.KCLRun,
+	patcher *patch.SerialPatcher) (retErr error) {
+
+	// Configure the runtime patcher.
+	patchOpts := []patch.Option{}
+	ownedConditions := []string{
+		meta.HealthyCondition,
+		meta.ReadyCondition,
+		meta.ReconcilingCondition,
+		meta.StalledCondition,
+	}
+	patchOpts = append(patchOpts,
+		patch.WithOwnedConditions{Conditions: ownedConditions},
+		patch.WithForceOverwriteConditions{},
+		patch.WithFieldOwner(r.statusManager),
+	)
+
+	// Patch the object status, conditions and finalizers.
+	if err := patcher.Patch(ctx, obj, patchOpts...); err != nil {
+		if !obj.GetDeletionTimestamp().IsZero() {
+			err = kerrors.FilterOut(err, func(e error) bool { return apierrors.IsNotFound(e) })
+		}
+		retErr = kerrors.NewAggregate([]error{retErr, err})
+		if retErr != nil {
+			return retErr
+		}
+	}
+
+	return nil
 }

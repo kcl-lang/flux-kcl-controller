@@ -30,6 +30,7 @@ import (
 	"github.com/fluxcd/cli-utils/pkg/kstatus/polling"
 	"github.com/fluxcd/cli-utils/pkg/kstatus/polling/engine"
 	"github.com/fluxcd/pkg/runtime/client"
+	"github.com/fluxcd/pkg/runtime/events"
 	"github.com/fluxcd/pkg/runtime/logger"
 	"github.com/fluxcd/pkg/runtime/metrics"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
@@ -41,6 +42,8 @@ import (
 	"github.com/kcl-lang/flux-kcl-controller/internal/statusreaders"
 	// +kubebuilder:scaffold:imports
 )
+
+const controllerName = "flux-kcl-controller"
 
 var (
 	scheme   = runtime.NewScheme()
@@ -61,6 +64,7 @@ func init() {
 func main() {
 	var (
 		metricsAddr           string
+		eventsAddr            string
 		enableLeaderElection  bool
 		httpRetry             int
 		defaultServiceAccount string
@@ -69,17 +73,20 @@ func main() {
 		clientOptions  client.Options
 		kubeConfigOpts client.KubeConfigOptions
 
-		rateLimiterOptions helper.RateLimiterOptions
-		watchOptions       helper.WatchOptions
+		rateLimiterOptions      helper.RateLimiterOptions
+		watchOptions            helper.WatchOptions
+		disallowedFieldManagers []string
 	)
 
 	flag.StringVar(&metricsAddr, "metrics-addr", ":8083", "The address the metric endpoint binds to.")
+	flag.StringVar(&eventsAddr, "events-addr", "", "The address of the events receiver.")
 	flag.BoolVar(&enableLeaderElection, "enable-leader-election", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
 	flag.IntVar(&httpRetry, "http-retry", 9, "The maximum number of retries when failing to fetch artifacts over HTTP.")
 	flag.StringVar(&defaultServiceAccount, "default-service-account", "",
 		"Default service account used for impersonation.")
+	flag.StringArrayVar(&disallowedFieldManagers, "override-manager", []string{}, "Field manager disallowed to perform changes on managed resources.")
 
 	clientOptions.BindFlags(flag.CommandLine)
 	logOptions.BindFlags(flag.CommandLine)
@@ -103,20 +110,29 @@ func main() {
 		os.Exit(1)
 	}
 
+	var eventRecorder *events.Recorder
+	if eventRecorder, err = events.NewRecorder(mgr, ctrl.Log, eventsAddr, controllerName); err != nil {
+		setupLog.Error(err, "unable to create event recorder")
+		os.Exit(1)
+	}
+
 	jobStatusReader := statusreaders.NewCustomJobStatusReader(mgr.GetRESTMapper())
 	pollingOpts := polling.Options{
 		CustomStatusReaders: []engine.StatusReader{jobStatusReader},
 	}
 
 	if err = (&controller.KCLRunReconciler{
-		DefaultServiceAccount: defaultServiceAccount,
-		Client:                mgr.GetClient(),
-		Metrics:               helper.NewMetrics(mgr, metrics.MustMakeRecorder(), "finalizers.krm.kcl.dev.fluxcd"),
-		GetClusterConfig:      ctrl.GetConfig,
-		ClientOpts:            clientOptions,
-		KubeConfigOpts:        kubeConfigOpts,
-		PollingOpts:           pollingOpts,
-		StatusPoller:          polling.NewStatusPoller(mgr.GetClient(), mgr.GetRESTMapper(), pollingOpts),
+		ControllerName:          controllerName,
+		DefaultServiceAccount:   defaultServiceAccount,
+		Client:                  mgr.GetClient(),
+		Metrics:                 helper.NewMetrics(mgr, metrics.MustMakeRecorder(), "finalizers.krm.kcl.dev.fluxcd"),
+		EventRecorder:           eventRecorder,
+		GetClusterConfig:        ctrl.GetConfig,
+		ClientOpts:              clientOptions,
+		KubeConfigOpts:          kubeConfigOpts,
+		PollingOpts:             pollingOpts,
+		StatusPoller:            polling.NewStatusPoller(mgr.GetClient(), mgr.GetRESTMapper(), pollingOpts),
+		DisallowedFieldManagers: disallowedFieldManagers,
 	}).SetupWithManager(mgr, controller.KCLRunReconcilerOptions{
 		HTTPRetry: httpRetry,
 	}); err != nil {
