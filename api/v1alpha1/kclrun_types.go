@@ -284,6 +284,25 @@ func (in KCLRun) GetTimeout() time.Duration {
 	return duration
 }
 
+// GetRetryInterval returns the retry interval
+func (in KCLRun) GetRetryInterval() time.Duration {
+	if in.Spec.RetryInterval != nil {
+		return in.Spec.RetryInterval.Duration
+	}
+	return in.GetRequeueAfter()
+}
+
+// GetRequeueAfter returns the duration after which the KCLRun must be
+// reconciled again.
+func (in KCLRun) GetRequeueAfter() time.Duration {
+	return in.Spec.Interval.Duration
+}
+
+// GetDependsOn returns the list of dependencies across-namespaces.
+func (in KCLRun) GetDependsOn() []meta.NamespacedObjectReference {
+	return in.Spec.DependsOn
+}
+
 // UsePersistentClient returns the configured PersistentClient, or the default
 // of true.
 func (in KCLRun) UsePersistentClient() bool {
