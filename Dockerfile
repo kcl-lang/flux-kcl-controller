@@ -30,17 +30,12 @@ ARG TARGETARCH
 # Build the function binary. The type=target mount tells Docker to mount the
 # current directory read-only in the WORKDIR. The type=cache mount tells Docker
 # to cache the Go modules cache across builds.
-RUN --mount=target=. \
-    --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=cache,target=/root/.cache/go-build \
-    GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -a -o kcl-controller cmd/main.go
+RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -a -o kcl-controller cmd/main.go
 
 FROM ${BASE_IMAGE} as image
 RUN apt-get update && apt-get install -y ca-certificates tini
 COPY --from=build /src/kcl-controller /usr/local/bin/
 # RUN addgroup -S controller && adduser -S controller -G controller
 RUN groupadd controller && useradd -g controller controller
-
-USER controller
 
 ENTRYPOINT [ "/usr/bin/tini", "--", "kcl-controller" ]

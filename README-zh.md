@@ -122,7 +122,3 @@ nginx-deployment-1   1/1     1            0           4s
 ```
 
 可以看到，kcl-controller 根据仓库中的 KCL 程序，创建了一个 nginx-deployment-1。
-
-# 未来工作
-
-- 添加 KCL OCI Registry Controller，用于支持存储在 OCI 仓库中的 KCL 程序。
