@@ -41,9 +41,11 @@ import (
 	securejoin "github.com/cyphar/filepath-securejoin"
 	"github.com/fluxcd/cli-utils/pkg/kstatus/polling"
 	"github.com/fluxcd/cli-utils/pkg/object"
+	apiacl "github.com/fluxcd/pkg/apis/acl"
 	eventv1 "github.com/fluxcd/pkg/apis/event/v1beta1"
 	"github.com/fluxcd/pkg/apis/meta"
 	"github.com/fluxcd/pkg/http/fetch"
+	"github.com/fluxcd/pkg/runtime/acl"
 	runtimeClient "github.com/fluxcd/pkg/runtime/client"
 	"github.com/fluxcd/pkg/runtime/conditions"
 	"github.com/fluxcd/pkg/runtime/patch"
@@ -150,6 +152,20 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	source, err := r.getSource(ctx, &obj)
 	if err != nil {
+		conditions.MarkFalse(&obj, meta.ReadyCondition, meta.ArtifactFailedReason, "%s", err)
+		if apierrors.IsNotFound(err) {
+			msg := fmt.Sprintf("Source '%s' not found", obj.Spec.SourceRef.String())
+			log.Info(msg)
+			return ctrl.Result{RequeueAfter: obj.GetRetryInterval()}, nil
+		}
+
+		if acl.IsAccessDenied(err) {
+			conditions.MarkFalse(&obj, meta.ReadyCondition, apiacl.AccessDeniedReason, "%s", err)
+			log.Error(err, "Access denied to cross-namespace source")
+			r.event(&obj, "unknown", eventv1.EventSeverityError, err.Error(), nil)
+			return ctrl.Result{RequeueAfter: obj.GetRetryInterval()}, nil
+		}
+		// Retry with backoff on transient errors.
 		return ctrl.Result{}, err
 	}
 	artifact := source.GetArtifact()
