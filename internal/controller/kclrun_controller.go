@@ -210,7 +210,7 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, err
 	}
 	// Compile the KCL source code into the Kubernetes manifests
-	res, err := kcl.CompileKclPackage(dirPath)
+	res, err := kcl.CompileKclPackage(&obj, dirPath)
 	if err != nil {
 		conditions.MarkFalse(&obj, meta.ReadyCondition, "FetchFailed", err.Error())
 		log.Error(err, "failed to compile the KCL source code")
