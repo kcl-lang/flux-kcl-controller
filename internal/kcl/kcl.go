@@ -1,16 +1,19 @@
 package kcl
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 
+	"github.com/kcl-lang/flux-kcl-controller/api/v1alpha1"
 	"kcl-lang.io/kcl-go/pkg/kcl"
 	"kcl-lang.io/kpm/pkg/client"
 	"kcl-lang.io/kpm/pkg/opt"
 )
 
 // Compile the KCL source code into kubernetes manifests.
-func CompileKclPackage(pkgPath string) (*kcl.KCLResultList, error) {
+func CompileKclPackage(obj *v1alpha1.KCLRun, pkgPath string) (*kcl.KCLResultList, error) {
 	cli, _ := client.NewKpmClient()
 	opts := opt.DefaultCompileOptions()
 
@@ -23,9 +26,34 @@ func CompileKclPackage(pkgPath string) (*kcl.KCLResultList, error) {
 	settings := filepath.Join(pkgPath, "kcl.yaml")
 	_, err = os.Stat(settings)
 	if err == nil {
-		opts.Option.Merge(kcl.WithSettings(settings))
+		opts.Merge(kcl.WithSettings(settings))
 		opts.SetHasSettingsYaml(true)
 	}
+	if obj != nil {
+		if obj.Spec.Config != nil {
+			for _, s := range obj.Spec.Config.Settings {
+				opts.Merge(kcl.WithSettings(s))
+				opts.SetHasSettingsYaml(true)
+			}
+			opts.SetVendor(obj.Spec.Config.Vendor)
+			opts.Merge(
+				kcl.WithOptions(obj.Spec.Config.Arguments...),
+				kcl.WithOverrides(obj.Spec.Config.Overrides...),
+				kcl.WithSelectors(obj.Spec.Config.PathSelectors...),
+				kcl.WithSortKeys(obj.Spec.Config.SortKeys),
+				kcl.WithShowHidden(obj.Spec.Config.ShowHidden),
+				kcl.WithDisableNone(obj.Spec.Config.DisableNone),
+			)
+		}
+		if obj.Spec.Params != nil {
+			paramsBytes, err := json.Marshal(obj.Spec.Params)
+			if err != nil {
+				return nil, err
+			}
+			opts.Merge(kcl.WithOptions(fmt.Sprintf("params=%s", string(paramsBytes))))
+		}
+	}
+	opts.Merge()
 
 	return cli.CompileWithOpts(opts)
 }
