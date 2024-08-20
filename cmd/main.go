@@ -18,6 +18,7 @@ package main
 
 import (
 	"os"
+	"time"
 
 	flag "github.com/spf13/pflag"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -65,6 +66,7 @@ func main() {
 	var (
 		metricsAddr           string
 		eventsAddr            string
+		requeueDependency     time.Duration
 		enableLeaderElection  bool
 		httpRetry             int
 		defaultServiceAccount string
@@ -80,6 +82,7 @@ func main() {
 
 	flag.StringVar(&metricsAddr, "metrics-addr", ":8083", "The address the metric endpoint binds to.")
 	flag.StringVar(&eventsAddr, "events-addr", "", "The address of the events receiver.")
+	flag.DurationVar(&requeueDependency, "requeue-dependency", 30*time.Second, "The interval at which failing dependencies are reevaluated.")
 	flag.BoolVar(&enableLeaderElection, "enable-leader-election", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
@@ -134,7 +137,8 @@ func main() {
 		StatusPoller:            polling.NewStatusPoller(mgr.GetClient(), mgr.GetRESTMapper(), pollingOpts),
 		DisallowedFieldManagers: disallowedFieldManagers,
 	}).SetupWithManager(mgr, controller.KCLRunReconcilerOptions{
-		HTTPRetry: httpRetry,
+		DependencyRequeueInterval: requeueDependency,
+		HTTPRetry:                 httpRetry,
 	}); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "KCLRun")
 		os.Exit(1)

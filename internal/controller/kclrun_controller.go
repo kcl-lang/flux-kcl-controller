@@ -88,12 +88,14 @@ type KCLRunReconciler struct {
 	DefaultServiceAccount   string
 	DisallowedFieldManagers []string
 	artifactFetcher         *fetch.ArchiveFetcher
+	requeueDependency       time.Duration
 
 	statusManager string
 }
 
 type KCLRunReconcilerOptions struct {
-	HTTPRetry int
+	DependencyRequeueInterval time.Duration
+	HTTPRetry                 int
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -105,6 +107,7 @@ func (r *KCLRunReconciler) SetupWithManager(mgr ctrl.Manager, opts KCLRunReconci
 		fetch.WithUntar(tar.WithMaxUntarSize(tar.UnlimitedUntarSize)),
 		fetch.WithHostnameOverwrite(os.Getenv("SOURCE_CONTROLLER_LOCALHOST")),
 	)
+	r.requeueDependency = opts.DependencyRequeueInterval
 	r.statusManager = "gotk-flux-kcl-controller"
 	// New controller
 	return ctrl.NewControllerManagedBy(mgr).
@@ -214,6 +217,27 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res
 		return ctrl.Result{}, err
 	}
 	artifact := source.GetArtifact()
+
+	// Requeue the reconciliation if the source artifact is not found.
+	if artifact == nil {
+		msg := fmt.Sprintf("Source artifact not found, retrying in %s", r.requeueDependency.String())
+		conditions.MarkFalse(&obj, meta.ReadyCondition, meta.ArtifactFailedReason, "%s", msg)
+		log.Info(msg)
+		return ctrl.Result{RequeueAfter: r.requeueDependency}, nil
+	}
+
+	// Check dependencies and requeue the reconciliation if the check fails.
+	if len(obj.Spec.DependsOn) > 0 {
+		if err := r.checkDependencies(ctx, &obj, source); err != nil {
+			conditions.MarkFalse(&obj, meta.ReadyCondition, meta.DependencyNotReadyReason, "%s", err)
+			msg := fmt.Sprintf("Dependencies do not meet ready condition, retrying in %s", r.requeueDependency.String())
+			log.Info(msg)
+			r.event(&obj, artifact.Revision, eventv1.EventSeverityInfo, msg, nil)
+			return ctrl.Result{RequeueAfter: r.requeueDependency}, nil
+		}
+		log.Info("All dependencies are ready, proceeding with reconciliation")
+	}
+
 	progressingMsg := fmt.Sprintf("new revision detected %s", artifact.Revision)
 	log.Info(progressingMsg)
 	conditions.MarkUnknown(&obj, meta.ReadyCondition, meta.ProgressingReason, "Reconciliation in progress")
@@ -366,6 +390,51 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res
 	}
 
 	return ctrl.Result{}, nil
+}
+
+func (r *KCLRunReconciler) checkDependencies(ctx context.Context,
+	obj *v1alpha1.KCLRun,
+	source sourcev1.Source) error {
+	for _, d := range obj.Spec.DependsOn {
+		if d.Namespace == "" {
+			d.Namespace = obj.GetNamespace()
+		}
+		dName := types.NamespacedName{
+			Namespace: d.Namespace,
+			Name:      d.Name,
+		}
+		var k v1alpha1.KCLRun
+		err := r.Get(ctx, dName, &k)
+		if err != nil {
+			return fmt.Errorf("dependency '%s' not found: %w", dName, err)
+		}
+
+		if len(k.Status.Conditions) == 0 || k.Generation != k.Status.ObservedGeneration {
+			return fmt.Errorf("dependency '%s' is not ready", dName)
+		}
+
+		if !apimeta.IsStatusConditionTrue(k.Status.Conditions, meta.ReadyCondition) {
+			return fmt.Errorf("dependency '%s' is not ready", dName)
+		}
+
+		srcNamespace := k.Spec.SourceRef.Namespace
+		if srcNamespace == "" {
+			srcNamespace = k.GetNamespace()
+		}
+		dSrcNamespace := obj.Spec.SourceRef.Namespace
+		if dSrcNamespace == "" {
+			dSrcNamespace = obj.GetNamespace()
+		}
+
+		if k.Spec.SourceRef.Name == obj.Spec.SourceRef.Name &&
+			srcNamespace == dSrcNamespace &&
+			k.Spec.SourceRef.Kind == obj.Spec.SourceRef.Kind &&
+			!source.GetArtifact().HasRevision(k.Status.LastAppliedRevision) {
+			return fmt.Errorf("dependency '%s' revision is not up to date", dName)
+		}
+	}
+
+	return nil
 }
 
 func (r *KCLRunReconciler) getSource(ctx context.Context,
