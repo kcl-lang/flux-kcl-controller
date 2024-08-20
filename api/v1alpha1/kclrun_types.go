@@ -191,6 +191,15 @@ type ConfigSpec struct {
 
 // KCLRunStatus defines the observed state of KCLRun
 type KCLRunStatus struct {
+	meta.ReconcileRequestStatus `json:",inline"`
+
+	// ObservedGeneration is the last reconciled generation.
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+
+	// +optional
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
 	// The last successfully applied revision.
 	// Equals the Revision of the applied Artifact from the referenced Source.
 	// +optional
@@ -207,9 +216,6 @@ type KCLRunStatus struct {
 	// This is only set for OCIRepository sources.
 	// +optional
 	LastAttemptedRevisionDigest string `json:"lastAttemptedRevisionDigest,omitempty"`
-
-	// +optional
-	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
 	// Inventory contains the list of Kubernetes resource object references that
 	// have been successfully applied.

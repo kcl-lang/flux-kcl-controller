@@ -138,9 +138,9 @@ func (r *KCLRunReconciler) SetupWithManager(mgr ctrl.Manager, opts KCLRunReconci
 //
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.16.3/pkg/reconcile
-func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
 	log := ctrl.LoggerFrom(ctx)
-
+	reconcileStart := time.Now()
 	// Get KCL source object
 	var obj v1alpha1.KCLRun
 	if err := r.Get(ctx, req.NamespacedName, &obj); err != nil {
@@ -149,6 +149,51 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	// Initialize the runtime patcher with the current version of the object.
 	patcher := patch.NewSerialPatcher(&obj, r.Client)
+
+	// Finalise the reconciliation and report the results.
+	defer func() {
+		// Patch finalizers, status and conditions.
+		if err := r.finalizeStatus(ctx, &obj, patcher); err != nil {
+			retErr = kerrors.NewAggregate([]error{retErr, err})
+		}
+
+		// Record Prometheus metrics.
+		r.Metrics.RecordReadiness(ctx, &obj)
+		r.Metrics.RecordDuration(ctx, &obj, reconcileStart)
+		r.Metrics.RecordSuspend(ctx, &obj, obj.Spec.Suspend)
+
+		// Log and emit success event.
+		if conditions.IsReady(&obj) {
+			msg := fmt.Sprintf("Reconciliation finished in %s, next run in %s",
+				time.Since(reconcileStart).String(),
+				obj.Spec.Interval.Duration.String())
+			log.Info(msg, "revision", obj.Status.LastAttemptedRevision)
+			r.event(&obj, obj.Status.LastAppliedRevision, eventv1.EventSeverityInfo, msg,
+				map[string]string{
+					v1alpha1.GroupVersion.Group + "/" + eventv1.MetaCommitStatusKey: eventv1.MetaCommitStatusUpdateValue,
+				})
+		}
+	}()
+
+	// Prune managed resources if the object is under deletion.
+	if !obj.ObjectMeta.DeletionTimestamp.IsZero() {
+		return r.finalize(ctx, &obj)
+	}
+
+	// Add finalizer first if it doesn't exist to avoid the race condition
+	// between init and delete.
+	// Note: Finalizers in general can only be added when the deletionTimestamp
+	// is not set.
+	if !controllerutil.ContainsFinalizer(&obj, v1alpha1.KCLRunFinalizer) {
+		controllerutil.AddFinalizer(&obj, v1alpha1.KCLRunFinalizer)
+		return ctrl.Result{Requeue: true}, nil
+	}
+
+	// Skip reconciliation if the object is suspended.
+	if obj.Spec.Suspend {
+		log.Info("Reconciliation is suspended for this object")
+		return ctrl.Result{}, nil
+	}
 
 	source, err := r.getSource(ctx, &obj)
 	if err != nil {
@@ -831,6 +876,34 @@ func (r *KCLRunReconciler) apply(ctx context.Context,
 	}
 
 	return applyLog != "", resultSet, nil
+}
+
+func (r *KCLRunReconciler) finalizeStatus(ctx context.Context,
+	obj *v1alpha1.KCLRun,
+	patcher *patch.SerialPatcher) error {
+	// Set the value of the reconciliation request in status.
+	if v, ok := meta.ReconcileAnnotationValue(obj.GetAnnotations()); ok {
+		obj.Status.LastHandledReconcileAt = v
+	}
+
+	// Remove the Reconciling condition and update the observed generation
+	// if the reconciliation was successful.
+	if conditions.IsTrue(obj, meta.ReadyCondition) {
+		conditions.Delete(obj, meta.ReconcilingCondition)
+		obj.Status.ObservedGeneration = obj.Generation
+	}
+
+	// Set the Reconciling reason to ProgressingWithRetry if the
+	// reconciliation has failed.
+	if conditions.IsFalse(obj, meta.ReadyCondition) &&
+		conditions.Has(obj, meta.ReconcilingCondition) {
+		rc := conditions.Get(obj, meta.ReconcilingCondition)
+		rc.Reason = meta.ProgressingWithRetryReason
+		conditions.Set(obj, rc)
+	}
+
+	// Patch finalizers, status and conditions.
+	return r.patch(ctx, obj, patcher)
 }
 
 func (r *KCLRunReconciler) patch(ctx context.Context,
