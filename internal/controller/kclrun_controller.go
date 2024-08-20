@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
@@ -139,58 +140,69 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	log := ctrl.LoggerFrom(ctx)
 
 	// Get KCL source object
-	var kclRun v1alpha1.KCLRun
-	if err := r.Get(ctx, req.NamespacedName, &kclRun); err != nil {
+	var obj v1alpha1.KCLRun
+	if err := r.Get(ctx, req.NamespacedName, &obj); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	// Initialize the runtime patcher with the current version of the object.
-	patcher := patch.NewSerialPatcher(&kclRun, r.Client)
+	patcher := patch.NewSerialPatcher(&obj, r.Client)
 
-	source, err := r.getSource(ctx, &kclRun)
+	source, err := r.getSource(ctx, &obj)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 	artifact := source.GetArtifact()
 	progressingMsg := fmt.Sprintf("new revision detected %s", artifact.Revision)
 	log.Info(progressingMsg)
-	conditions.MarkUnknown(&kclRun, meta.ReadyCondition, meta.ProgressingReason, "Reconciliation in progress")
-	conditions.MarkReconciling(&kclRun, meta.ProgressingReason, progressingMsg)
+	conditions.MarkUnknown(&obj, meta.ReadyCondition, meta.ProgressingReason, "Reconciliation in progress")
+	conditions.MarkReconciling(&obj, meta.ProgressingReason, progressingMsg)
+
+	if err := r.patch(ctx, &obj, patcher); err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to update status: %w", err)
+	}
+
+	// Create a snapshot of the current inventory.
+	oldInventory := inventory.New()
+	if obj.Status.Inventory != nil {
+		obj.Status.Inventory.DeepCopyInto(oldInventory)
+	}
+
 	// Create tmp dir
-	tmpDir, err := os.MkdirTemp("", kclRun.Name)
+	tmpDir, err := os.MkdirTemp("", obj.Name)
 	if err != nil {
-		conditions.MarkFalse(&kclRun, meta.ReadyCondition, sourcev1.DirCreationFailedReason, err.Error())
+		conditions.MarkFalse(&obj, meta.ReadyCondition, sourcev1.DirCreationFailedReason, err.Error())
 		return ctrl.Result{}, fmt.Errorf("failed to create temp dir, error: %w", err)
 	}
 	defer os.RemoveAll(tmpDir)
 	log.Info("fetching......")
 	// Download and extract artifact
 	if err := r.artifactFetcher.Fetch(artifact.URL, artifact.Digest, tmpDir); err != nil {
-		conditions.MarkFalse(&kclRun, meta.ReadyCondition, "failed fetch artifacts", err.Error())
+		conditions.MarkFalse(&obj, meta.ReadyCondition, "failed fetch artifacts", err.Error())
 		log.Error(err, "unable to fetch artifact")
 		return ctrl.Result{}, err
 	}
 	// Check build path exists
-	dirPath, err := securejoin.SecureJoin(tmpDir, kclRun.Spec.Path)
+	dirPath, err := securejoin.SecureJoin(tmpDir, obj.Spec.Path)
 	if err != nil {
-		conditions.MarkFalse(&kclRun, meta.ReadyCondition, meta.ArtifactFailedReason, "%s", err)
+		conditions.MarkFalse(&obj, meta.ReadyCondition, meta.ArtifactFailedReason, "%s", err)
 		return ctrl.Result{}, err
 	}
 	if _, err := os.Stat(dirPath); err != nil {
 		err = fmt.Errorf("KCL package path not found: %w", err)
-		conditions.MarkFalse(&kclRun, meta.ReadyCondition, meta.ArtifactFailedReason, "%s", err)
+		conditions.MarkFalse(&obj, meta.ReadyCondition, meta.ArtifactFailedReason, "%s", err)
 		return ctrl.Result{}, err
 	}
 	// Compile the KCL source code into the Kubernetes manifests
 	res, err := kcl.CompileKclPackage(dirPath)
 	if err != nil {
-		conditions.MarkFalse(&kclRun, meta.ReadyCondition, "FetchFailed", err.Error())
+		conditions.MarkFalse(&obj, meta.ReadyCondition, "FetchFailed", err.Error())
 		log.Error(err, "failed to compile the KCL source code")
 		return ctrl.Result{}, err
 	}
 	objects, err := utils.ReadObjects(bytes.NewReader(([]byte(res.GetRawYamlResult()))))
 	if err != nil {
-		conditions.MarkFalse(&kclRun, meta.ReadyCondition, "CompileFailed", err.Error())
+		conditions.MarkFalse(&obj, meta.ReadyCondition, "CompileFailed", err.Error())
 		log.Error(err, "failed to compile the yaml str into kubernetes manifests")
 		return ctrl.Result{}, err
 	}
@@ -201,70 +213,94 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		r.Client,
 		r.StatusPoller,
 		r.PollingOpts,
-		kclRun.Spec.KubeConfig,
+		obj.Spec.KubeConfig,
 		r.KubeConfigOpts,
 		r.DefaultServiceAccount,
-		kclRun.Spec.ServiceAccountName,
-		kclRun.GetNamespace(),
+		obj.Spec.ServiceAccountName,
+		obj.GetNamespace(),
 	)
 	// Create the Kubernetes client that runs under impersonation.
 	kubeClient, statusPoller, err := impersonation.GetClient(ctx)
 	if err != nil {
-		conditions.MarkFalse(&kclRun, meta.ReadyCondition, meta.ReconciliationFailedReason, "%s", err)
+		conditions.MarkFalse(&obj, meta.ReadyCondition, meta.ReconciliationFailedReason, "%s", err)
 		return ctrl.Result{}, fmt.Errorf("failed to build kube client: %w", err)
 	}
 
 	if err != nil {
-		conditions.MarkFalse(&kclRun, meta.ReadyCondition, "RESTClientError", "%s", err)
+		conditions.MarkFalse(&obj, meta.ReadyCondition, "RESTClientError", "%s", err)
 		return ctrl.Result{}, err
 	}
 	// Remove any stale corresponding Ready=False condition with Unknown.
-	if conditions.HasAnyReason(&kclRun, meta.ReadyCondition, "RESTClientError") {
-		conditions.MarkUnknown(&kclRun, meta.ReadyCondition, meta.ProgressingReason, "reconciliation in progress")
+	if conditions.HasAnyReason(&obj, meta.ReadyCondition, "RESTClientError") {
+		conditions.MarkUnknown(&obj, meta.ReadyCondition, meta.ProgressingReason, "reconciliation in progress")
 	}
 
 	rm := ssa.NewResourceManager(kubeClient, statusPoller, ssa.Owner{
 		Field: "kcl-controller",
-		Group: kclRun.GroupVersionKind().Group,
+		Group: obj.GroupVersionKind().Group,
 	})
-	rm.SetOwnerLabels(objects, kclRun.GetName(), kclRun.GetNamespace())
+	rm.SetOwnerLabels(objects, obj.GetName(), obj.GetNamespace())
 
 	// Apply the manifests
-	log.Info(fmt.Sprintf("applying %s", kclRun.GetName()))
+	log.Info(fmt.Sprintf("applying %s", obj.GetName()))
 	// Validate and apply resources in stages.
-	drifted, changeSet, err := r.apply(ctx, rm, &kclRun, artifact.Revision, objects)
+	drifted, changeSet, err := r.apply(ctx, rm, &obj, artifact.Revision, objects)
 	if err != nil {
-		conditions.MarkFalse(&kclRun, meta.ReadyCondition, "ApplyFailed", err.Error())
+		conditions.MarkFalse(&obj, meta.ReadyCondition, "ApplyFailed", err.Error())
 		err = fmt.Errorf("failed to run server-side apply: %w", err)
 		return ctrl.Result{}, err
 	}
 
 	log.Info("successfully applied kcl resources")
 
+	// Create an inventory from the reconciled resources.
+	newInventory := inventory.New()
+	err = inventory.AddChangeSet(newInventory, changeSet)
+	if err != nil {
+		conditions.MarkFalse(&obj, meta.ReadyCondition, meta.ReconciliationFailedReason, "%s", err)
+		return ctrl.Result{}, err
+	}
+
+	// Set last applied inventory in status.
+	obj.Status.Inventory = newInventory
+
+	// Detect stale resources which are subject to garbage collection.
+	staleObjects, err := inventory.Diff(oldInventory, newInventory)
+	if err != nil {
+		conditions.MarkFalse(&obj, meta.ReadyCondition, meta.ReconciliationFailedReason, "%s", err)
+		return ctrl.Result{}, err
+	}
+
+	// Run garbage collection for stale resources that do not have pruning disabled.
+	if _, err := r.prune(ctx, rm, &obj, artifact.Revision, staleObjects); err != nil {
+		conditions.MarkFalse(&obj, meta.ReadyCondition, meta.PruneFailedReason, "%s", err)
+		return ctrl.Result{}, err
+	}
+
 	// Run the health checks for the last applied resources.
-	isNewRevision := !source.GetArtifact().HasRevision(kclRun.Status.LastAppliedRevision)
+	isNewRevision := !source.GetArtifact().HasRevision(obj.Status.LastAppliedRevision)
 	if err := r.checkHealth(ctx,
 		rm,
 		patcher,
-		&kclRun,
+		&obj,
 		artifact.Revision,
 		isNewRevision,
 		drifted,
 		changeSet.ToObjMetadataSet()); err != nil {
-		conditions.MarkFalse(&kclRun, meta.ReadyCondition, meta.HealthCheckFailedReason, "%s", err)
+		conditions.MarkFalse(&obj, meta.ReadyCondition, meta.HealthCheckFailedReason, "%s", err)
 		return ctrl.Result{}, err
 	}
 
 	// Set last applied revision.
-	kclRun.Status.LastAppliedRevision = artifact.Revision
+	obj.Status.LastAppliedRevision = artifact.Revision
 
 	// Mark the object as ready.
-	conditions.MarkTrue(&kclRun,
+	conditions.MarkTrue(&obj,
 		meta.ReadyCondition,
 		meta.ReconciliationSucceededReason,
 		fmt.Sprintf("Applied revision: %s", artifact.Revision))
 
-	if err := r.Status().Update(ctx, &kclRun); err != nil {
+	if err := r.Status().Update(ctx, &obj); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -469,6 +505,104 @@ func (r *KCLRunReconciler) checkHealth(ctx context.Context,
 	}
 
 	return nil
+}
+
+func (r *KCLRunReconciler) prune(ctx context.Context,
+	manager *ssa.ResourceManager,
+	obj *v1alpha1.KCLRun,
+	revision string,
+	objects []*unstructured.Unstructured) (bool, error) {
+	if !obj.Spec.Prune {
+		return false, nil
+	}
+
+	log := ctrl.LoggerFrom(ctx)
+
+	opts := ssa.DeleteOptions{
+		PropagationPolicy: metav1.DeletePropagationBackground,
+		Inclusions:        manager.GetOwnerLabels(obj.Name, obj.Namespace),
+		Exclusions: map[string]string{
+			fmt.Sprintf("%s/prune", v1alpha1.GroupVersion.Group):     v1alpha1.DisabledValue,
+			fmt.Sprintf("%s/reconcile", v1alpha1.GroupVersion.Group): v1alpha1.DisabledValue,
+		},
+	}
+
+	changeSet, err := manager.DeleteAll(ctx, objects, opts)
+	if err != nil {
+		return false, err
+	}
+
+	// emit event only if the prune operation resulted in changes
+	if changeSet != nil && len(changeSet.Entries) > 0 {
+		log.Info(fmt.Sprintf("garbage collection completed: %s", changeSet.String()))
+		r.event(obj, revision, eventv1.EventSeverityInfo, changeSet.String(), nil)
+		return true, nil
+	}
+
+	return false, nil
+}
+
+func (r *KCLRunReconciler) finalize(ctx context.Context,
+	obj *v1alpha1.KCLRun) (ctrl.Result, error) {
+	log := ctrl.LoggerFrom(ctx)
+	if obj.Spec.Prune &&
+		!obj.Spec.Suspend &&
+		obj.Status.Inventory != nil &&
+		obj.Status.Inventory.Entries != nil {
+		objects, _ := inventory.List(obj.Status.Inventory)
+
+		impersonation := runtimeClient.NewImpersonator(
+			r.Client,
+			r.StatusPoller,
+			r.PollingOpts,
+			obj.Spec.KubeConfig,
+			r.KubeConfigOpts,
+			r.DefaultServiceAccount,
+			obj.Spec.ServiceAccountName,
+			obj.GetNamespace(),
+		)
+		if impersonation.CanImpersonate(ctx) {
+			kubeClient, _, err := impersonation.GetClient(ctx)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+
+			resourceManager := ssa.NewResourceManager(kubeClient, nil, ssa.Owner{
+				Field: r.ControllerName,
+				Group: v1alpha1.GroupVersion.Group,
+			})
+
+			opts := ssa.DeleteOptions{
+				PropagationPolicy: metav1.DeletePropagationBackground,
+				Inclusions:        resourceManager.GetOwnerLabels(obj.Name, obj.Namespace),
+				Exclusions: map[string]string{
+					fmt.Sprintf("%s/prune", v1alpha1.GroupVersion.Group):     v1alpha1.DisabledValue,
+					fmt.Sprintf("%s/reconcile", v1alpha1.GroupVersion.Group): v1alpha1.DisabledValue,
+				},
+			}
+
+			changeSet, err := resourceManager.DeleteAll(ctx, objects, opts)
+			if err != nil {
+				r.event(obj, obj.Status.LastAppliedRevision, eventv1.EventSeverityError, "pruning for deleted resource failed", nil)
+				// Return the error so we retry the failed garbage collection
+				return ctrl.Result{}, err
+			}
+
+			if changeSet != nil && len(changeSet.Entries) > 0 {
+				r.event(obj, obj.Status.LastAppliedRevision, eventv1.EventSeverityInfo, changeSet.String(), nil)
+			}
+		} else {
+			// when the account to impersonate is gone, log the stale objects and continue with the finalization
+			msg := fmt.Sprintf("unable to prune objects: \n%s", ssautil.FmtUnstructuredList(objects))
+			log.Error(fmt.Errorf("skiping pruning, failed to find account to impersonate"), msg)
+			r.event(obj, obj.Status.LastAppliedRevision, eventv1.EventSeverityError, msg, nil)
+		}
+	}
+
+	// Remove our finalizer from the list and update it
+	controllerutil.RemoveFinalizer(obj, v1alpha1.KCLRunFinalizer)
+	// Stop reconciliation as the object is being deleted
+	return ctrl.Result{}, nil
 }
 
 func (r *KCLRunReconciler) event(obj *v1alpha1.KCLRun,
