@@ -118,8 +118,7 @@ func main() {
 		PollingOpts:           pollingOpts,
 		StatusPoller:          polling.NewStatusPoller(mgr.GetClient(), mgr.GetRESTMapper(), pollingOpts),
 	}).SetupWithManager(mgr, controller.KCLRunReconcilerOptions{
-		HTTPRetry:   httpRetry,
-		RateLimiter: helper.GetRateLimiter(rateLimiterOptions),
+		HTTPRetry: httpRetry,
 	}); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "KCLRun")
 		os.Exit(1)

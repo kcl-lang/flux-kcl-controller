@@ -30,7 +30,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
-	"sigs.k8s.io/controller-runtime/pkg/ratelimiter"
 
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -71,8 +70,7 @@ type KCLRunReconciler struct {
 }
 
 type KCLRunReconcilerOptions struct {
-	HTTPRetry   int
-	RateLimiter ratelimiter.RateLimiter
+	HTTPRetry int
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -99,9 +97,7 @@ func (r *KCLRunReconciler) SetupWithManager(mgr ctrl.Manager, opts KCLRunReconci
 			handler.EnqueueRequestsFromMapFunc(r.requestsForOCIRepositoryChange),
 			builder.WithPredicates(intpredicates.SourceRevisionChangePredicate{}),
 		).
-		WithOptions(controller.Options{
-			RateLimiter: opts.RateLimiter,
-		}).
+		WithOptions(controller.Options{}).
 		Complete(r)
 }
 
