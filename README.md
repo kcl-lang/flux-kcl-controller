@@ -8,7 +8,7 @@
 
 # Introduction
 
-The flux-kcl-controller is a component developed for the integration of [KCL](https://github.com/kcl-lang/kcl) and [Flux](https://github.com/fluxcd/flux2), designed to orchestrate continuous delivery pipelines for infrastructure and workloads defined with KCL based on the [source-controller](https://github.com/fluxcd/source-controller) to acquire the KCL program from repositories.
+The `flux-kcl-controller` is a component developed for the integration of [KCL](https://github.com/kcl-lang/kcl) and [Flux](https://github.com/fluxcd/flux2), designed to orchestrate continuous delivery pipelines for infrastructure and workloads defined with KCL based on the [source-controller](https://github.com/fluxcd/source-controller), [kustomize-controller](https://github.com/fluxcd/kustomize-controller) and [helm-controller](https://github.com/fluxcd/helm-controller) to acquire the KCL program from repositories.
 
 ![kcl-flux](./docs/img/kcl-flux.png)
 
@@ -54,7 +54,7 @@ make deploy
 
 ## Monitor a git repository
 
-Take the github repository https://github.com/awesome-kusion/kcl-deployment as an example. This repository stores a KCL program that defines a `Deployment`. We will use kcl-controller to deploy this program.
+Take the GitHub repository https://github.com/awesome-kusion/kcl-deployment as an example. This repository stores a KCL program that defines a `Deployment`. We will use `flux-kcl-controller` to deploy this program.
 
 Define a `GitRepository` object through the `gitrepo.yaml` file to monitor the repository:
 
@@ -111,4 +111,4 @@ nginx-deployment     1/1     1            1           20m
 nginx-deployment-1   1/1     1            0           4s
 ```
 
-kcl-controller creates a `nginx-deployment-1` according to the KCL program in the repository.
+`flux-kcl-controller` creates a `nginx-deployment-1` according to the KCL program in the repository.

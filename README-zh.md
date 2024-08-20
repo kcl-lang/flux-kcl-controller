@@ -25,19 +25,10 @@ flux-kcl-controller 是一个组件，用于集成 [KCL](https://github.com/kcl-
 
 ## 创建测试用的 k8s 集群
 
-使用`mycluster.yaml`创建集群：
-
-```yaml
-apiVersion: k3d.io/v1alpha2
-kind: Simple
-name: mycluster
-servers: 1
-agents: 2
-```
 通过如下命令创建集群：
 
 ```shell
-k3d cluster create -c mycluster.yaml
+k3d cluster create
 ```
 
 ## 下载 kcl-controller 并且安装到集群中
@@ -51,7 +42,7 @@ git clone https://github.com/kcl-lang/flux-kcl-controller.git
 进入到本仓库的根目录：
 
 ```shell
-cd kcl-controller
+cd flux-kcl-controller
 ```
 
 将 kcl-controller 安装到集群中：
@@ -62,7 +53,7 @@ make deploy
 
 ## 监控一个 git 仓库
 
-我们以仓库 https://github.com/awesome-kusion/kcl-deployment 为例，该仓库中存储了一个 KCL 程序，该程序定义了一个 Deployment，我们将使用 kcl-controller 来部署该程序。
+我们以仓库 https://github.com/awesome-kusion/kcl-deployment 为例，该仓库中存储了一个 KCL 程序，该程序定义了一个 Deployment，我们将使用 `flux-kcl-controller` 来部署该程序。
 
 通过 `gitrepo.yaml` 文件，定义一个 `GitRepository` 对象，用来监控该仓库：
 
@@ -121,4 +112,4 @@ nginx-deployment     1/1     1            1           20m
 nginx-deployment-1   1/1     1            0           4s
 ```
 
-可以看到，kcl-controller 根据仓库中的 KCL 程序，创建了一个 nginx-deployment-1。
+可以看到，`flux-kcl-controller` 根据仓库中的 KCL 程序，创建了一个 `nginx-deployment-1` 资源。
