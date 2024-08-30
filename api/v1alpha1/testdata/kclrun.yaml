@@ -1,0 +1,55 @@
+apiVersion: kclrun.example.com/v1
+kind: KCLRun
+metadata:
+  name: example-kclrun
+  namespace: default
+spec:
+  commonMetadata:
+    annotations:
+      some_annotation: "example_value"
+    labels:
+      app: my-app
+  dependsOn:
+    - name: my-kustomization
+      namespace: default
+      kind: Kustomization
+  timeout: "10m"
+  persistentClient: true
+  kubeConfig:
+    secretRef:
+      name: my-kubeconfig
+  serviceAccountName: my-service-account
+  targetNamespace: my-target-namespace
+  force: false
+  interval: "5m"
+  retryInterval: "1m"
+  path: /path/to/kcl_mod_file_path
+  config:
+    arguments:
+      - env="prod"
+      - debug="true"
+    settings:
+      - setting1.yaml
+      - setting2.yaml
+    overrides:
+      - app.image="v2"
+    pathSelectors:
+      - path.to.output
+    vendor: false
+    sortKeys: true
+    showHidden: false
+    disableNone: true
+  configReference:
+    kind: ConfigMap
+    name: config-map-reference
+    optional: false
+  prune: true
+  healthChecks:
+    - kind: Pod
+      name: my-pod
+      namespace: default
+  wait: false
+  sourceRef:
+    kind: OCIRepository
+    name: podinfo
+  suspend: false
