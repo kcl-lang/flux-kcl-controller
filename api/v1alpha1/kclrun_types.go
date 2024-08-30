@@ -42,20 +42,20 @@ type KCLRunSpec struct {
 	// applied to all resources. Any existing label or annotation will be
 	// overridden if its key matches a common one.
 	// +optional
-	CommonMetadata *CommonMetadata `json:"commonMetadata,omitempty"`
+	CommonMetadata *CommonMetadata `json:"commonMetadata,omitempty" yaml:"commonMetadata,omitempty"`
 
 	// DependsOn may contain a meta.NamespacedObjectReference slice
 	// with references to Kustomization resources that must be ready before this
 	// Kustomization can be reconciled.
 	// +optional
-	DependsOn []meta.NamespacedObjectReference `json:"dependsOn,omitempty"`
+	DependsOn []meta.NamespacedObjectReference `json:"dependsOn,omitempty" yaml:"dependsOn,omitempty"`
 
 	// Timeout is the time to wait for any individual Kubernetes operation (like Jobs
 	// for hooks) during the performance. Defaults to '5m0s'.
 	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:Pattern="^([0-9]+(\\.[0-9]+)?(ms|s|m|h))+$"
 	// +optional
-	Timeout *metav1.Duration `json:"timeout,omitempty"`
+	Timeout *metav1.Duration `json:"timeout,omitempty" yaml:"timeout,omitempty"`
 
 	// PersistentClient tells the controller to use a persistent Kubernetes
 	// client for this release. When enabled, the client will be reused for the
@@ -65,7 +65,7 @@ type KCLRunSpec struct {
 	// If not set, it defaults to true.
 	//
 	// +optional
-	PersistentClient *bool `json:"persistentClient,omitempty"`
+	PersistentClient *bool `json:"persistentClient,omitempty" yaml:"persistentClient,omitempty"`
 
 	// The KubeConfig for reconciling the controller on a remote cluster.
 	// When used in combination with `KCLRunSpec.ServiceAccountName`,
@@ -75,14 +75,14 @@ type KCLRunSpec struct {
 	// a controller level fallback for when `KCLRunSpec.ServiceAccountName`
 	// is empty.
 	// +optional
-	KubeConfig *meta.KubeConfigReference `json:"kubeConfig,omitempty"`
+	KubeConfig *meta.KubeConfigReference `json:"kubeConfig,omitempty" yaml:"kubeConfig,omitempty"`
 
 	// The name of the Kubernetes service account to impersonate
 	// when reconciling this KCL source.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253
 	// +optional
-	ServiceAccountName string `json:"serviceAccountName,omitempty"`
+	ServiceAccountName string `json:"serviceAccountName,omitempty" yaml:"serviceAccountName,omitempty"`
 
 	// TargetNamespace to target when performing operations for the KCL.
 	// Defaults to the namespace of the KCL source.
@@ -90,13 +90,13 @@ type KCLRunSpec struct {
 	// +kubebuilder:validation:MaxLength=63
 	// +kubebuilder:validation:Optional
 	// +optional
-	TargetNamespace string `json:"targetNamespace,omitempty"`
+	TargetNamespace string `json:"targetNamespace,omitempty" yaml:"targetNamespace,omitempty"`
 
 	// Force instructs the controller to recreate resources
 	// when patching fails due to an immutable field change.
 	// +kubebuilder:default:=false
 	// +optional
-	Force bool `json:"force,omitempty"`
+	Force bool `json:"force,omitempty" yaml:"force,omitempty"`
 
 	// The interval at which to reconcile the KCL Module.
 	// This interval is approximate and may be subject to jitter to ensure
@@ -104,7 +104,7 @@ type KCLRunSpec struct {
 	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:Pattern="^([0-9]+(\\.[0-9]+)?(ms|s|m|h))+$"
 	// +required
-	Interval metav1.Duration `json:"interval"`
+	Interval metav1.Duration `json:"interval" yaml:"interval"`
 
 	// The interval at which to retry a previously failed reconciliation.
 	// When not specified, the controller uses the KCLRunSpec.Interval
@@ -112,12 +112,12 @@ type KCLRunSpec struct {
 	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:Pattern="^([0-9]+(\\.[0-9]+)?(ms|s|m|h))+$"
 	// +optional
-	RetryInterval *metav1.Duration `json:"retryInterval,omitempty"`
+	RetryInterval *metav1.Duration `json:"retryInterval,omitempty" yaml:"retryInterval,omitempty"`
 
 	// Path to the directory containing the kcl.mod file.
 	// Defaults to 'None', which translates to the root path of the SourceRef.
 	// +optional
-	Path string `json:"path,omitempty"`
+	Path string `json:"path,omitempty" yaml:"path,omitempty"`
 
 	// Params are the parameters in key-value pairs format.
 	// +optional
@@ -126,6 +126,11 @@ type KCLRunSpec struct {
 	// Config is the KCL compile config.
 	// +optional
 	Config *ConfigSpec `json:"config,omitempty" yaml:"config,omitempty"`
+
+	// ConfigReference holds references to ConfigMaps and Secrets containing
+	// the KCL compile config. The ConfigMap and the Secret data keys represent the config names.
+	// +optional
+	ConfigReference *ConfigReference `json:"configReference,omitempty" yaml:"configReference,omitempty"`
 
 	// Prune enables garbage collection.
 	// +required
@@ -189,38 +194,58 @@ type ConfigSpec struct {
 	DisableNone bool `json:"disableNone,omitempty" yaml:"disableNone,omitempty"`
 }
 
+// ConfigReference contains a reference to a resource containing the KCL compile config.
+type ConfigReference struct {
+	// Kind of the values referent, valid values are ('Secret', 'ConfigMap').
+	// +kubebuilder:validation:Enum=Secret;ConfigMap
+	// +required
+	Kind string `json:"kind" yaml:"kind"`
+	// Name of the values referent. Should reside in the same namespace as the
+	// referring resource.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	// +required
+	Name string `json:"name" yaml:"name"`
+	// Optional indicates whether the referenced resource must exist, or whether to
+	// tolerate its absence. If true and the referenced resource is absent, proceed
+	// as if the resource was present but empty, without any variables defined.
+	// +kubebuilder:default:=false
+	// +optional
+	Optional bool `json:"optional,omitempty" yaml:"optional,omitempty"`
+}
+
 // KCLRunStatus defines the observed state of KCLRun
 type KCLRunStatus struct {
-	meta.ReconcileRequestStatus `json:",inline"`
+	meta.ReconcileRequestStatus `json:",inline" yaml:",inline"`
 
 	// ObservedGeneration is the last reconciled generation.
 	// +optional
-	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+	ObservedGeneration int64 `json:"observedGeneration,omitempty" yaml:"observedGeneration,omitempty"`
 
 	// +optional
-	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	Conditions []metav1.Condition `json:"conditions,omitempty" yaml:"conditions,omitempty"`
 
 	// The last successfully applied revision.
 	// Equals the Revision of the applied Artifact from the referenced Source.
 	// +optional
-	LastAppliedRevision string `json:"lastAppliedRevision,omitempty"`
+	LastAppliedRevision string `json:"lastAppliedRevision,omitempty" yaml:"lastAppliedRevision,omitempty"`
 
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
 	// LastAttemptedRevision is the revision of the last reconciliation attempt.
 	// +optional
-	LastAttemptedRevision string `json:"lastAttemptedRevision,omitempty"`
+	LastAttemptedRevision string `json:"lastAttemptedRevision,omitempty" yaml:"lastAttemptedRevision,omitempty"`
 
 	// LastAttemptedRevisionDigest is the digest of the last reconciliation attempt.
 	// This is only set for OCIRepository sources.
 	// +optional
-	LastAttemptedRevisionDigest string `json:"lastAttemptedRevisionDigest,omitempty"`
+	LastAttemptedRevisionDigest string `json:"lastAttemptedRevisionDigest,omitempty" yaml:"lastAttemptedRevisionDigest,omitempty"`
 
 	// Inventory contains the list of Kubernetes resource object references that
 	// have been successfully applied.
 	// +optional
-	Inventory *ResourceInventory `json:"inventory,omitempty"`
+	Inventory *ResourceInventory `json:"inventory,omitempty" yaml:"inventory,omitempty"`
 }
 
 //+kubebuilder:object:root=true
@@ -228,20 +253,20 @@ type KCLRunStatus struct {
 
 // KCLRun is the Schema for the kclruns API
 type KCLRun struct {
-	metav1.TypeMeta   `json:",inline"`
-	metav1.ObjectMeta `json:"metadata,omitempty"`
+	metav1.TypeMeta   `json:",inline" yaml:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty" yaml:"metadata,omitempty"`
 
-	Spec   KCLRunSpec   `json:"spec,omitempty"`
-	Status KCLRunStatus `json:"status,omitempty"`
+	Spec   KCLRunSpec   `json:"spec,omitempty" yaml:"spec,omitempty"`
+	Status KCLRunStatus `json:"status,omitempty" yaml:"status,omitempty"`
 }
 
 //+kubebuilder:object:root=true
 
 // KCLRunList contains a list of KCLRun
 type KCLRunList struct {
-	metav1.TypeMeta `json:",inline"`
-	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []KCLRun `json:"items"`
+	metav1.TypeMeta `json:",inline" yaml:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty" yaml:"metadata,omitempty"`
+	Items           []KCLRun `json:"items" yaml:"items"`
 }
 
 func init() {
