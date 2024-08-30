@@ -130,7 +130,7 @@ type KCLRunSpec struct {
 	// ConfigReference holds references to ConfigMaps and Secrets containing
 	// the KCL compile config. The ConfigMap and the Secret data keys represent the config names.
 	// +optional
-	ConfigReference *ConfigReference `json:"configReference,omitempty" yaml:"configReference,omitempty"`
+	ArgumentsReferences []ArgumentReference `json:"argumentsReferences,omitempty" yaml:"argumentsReferences,omitempty"`
 
 	// Prune enables garbage collection.
 	// +required
@@ -194,8 +194,8 @@ type ConfigSpec struct {
 	DisableNone bool `json:"disableNone,omitempty" yaml:"disableNone,omitempty"`
 }
 
-// ConfigReference contains a reference to a resource containing the KCL compile config.
-type ConfigReference struct {
+// ArgumentReference contains a reference to a resource containing the KCL compile config.
+type ArgumentReference struct {
 	// Kind of the values referent, valid values are ('Secret', 'ConfigMap').
 	// +kubebuilder:validation:Enum=Secret;ConfigMap
 	// +required

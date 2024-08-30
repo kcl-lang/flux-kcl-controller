@@ -278,8 +278,40 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res
 		conditions.MarkFalse(&obj, meta.ReadyCondition, meta.ArtifactFailedReason, "%s", err)
 		return ctrl.Result{}, err
 	}
+	vars := make(map[string]string)
+	for _, reference := range obj.Spec.ArgumentsReferences {
+		namespacedName := types.NamespacedName{Namespace: obj.GetNamespace(), Name: reference.Name}
+		switch reference.Kind {
+		case "ConfigMap":
+			cm := &corev1.ConfigMap{}
+			if err := r.Client.Get(ctx, namespacedName, cm); err != nil {
+				if reference.Optional && apierrors.IsNotFound(err) {
+					// If optional, skip the not found error.
+					continue
+				} else {
+					return ctrl.Result{}, fmt.Errorf("config reference from 'ConfigMap/%s' error: %w", reference.Name, err)
+				}
+			}
+			for k, v := range cm.Data {
+				vars[k] = strings.ReplaceAll(v, "\n", "")
+			}
+		case "Secret":
+			secret := &corev1.Secret{}
+			if err := r.Client.Get(ctx, namespacedName, secret); err != nil {
+				if reference.Optional && apierrors.IsNotFound(err) {
+					// If optional, skip the not found error.
+					continue
+				} else {
+					return ctrl.Result{}, fmt.Errorf("config reference from 'Secret/%s' error: %w", reference.Name, err)
+				}
+			}
+			for k, v := range secret.Data {
+				vars[k] = strings.ReplaceAll(string(v), "\n", "")
+			}
+		}
+	}
 	// Compile the KCL source code into the Kubernetes manifests
-	res, err := kcl.CompileKclPackage(&obj, dirPath)
+	res, err := kcl.CompileKclPackage(&obj, dirPath, vars)
 	if err != nil {
 		conditions.MarkFalse(&obj, meta.ReadyCondition, "FetchFailed", err.Error())
 		log.Error(err, "failed to compile the KCL source code")

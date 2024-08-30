@@ -39,6 +39,40 @@ spec:
           spec:
             description: KCLRunSpec defines the desired state of KCLRun
             properties:
+              argumentsReferences:
+                description: |-
+                  ConfigReference holds references to ConfigMaps and Secrets containing
+                  the KCL compile config. The ConfigMap and the Secret data keys represent the config names.
+                items:
+                  description: ArgumentReference contains a reference to a resource
+                    containing the KCL compile config.
+                  properties:
+                    kind:
+                      description: Kind of the values referent, valid values are ('Secret',
+                        'ConfigMap').
+                      enum:
+                      - Secret
+                      - ConfigMap
+                      type: string
+                    name:
+                      description: |-
+                        Name of the values referent. Should reside in the same namespace as the
+                        referring resource.
+                      maxLength: 253
+                      minLength: 1
+                      type: string
+                    optional:
+                      default: false
+                      description: |-
+                        Optional indicates whether the referenced resource must exist, or whether to
+                        tolerate its absence. If true and the referenced resource is absent, proceed
+                        as if the resource was present but empty, without any variables defined.
+                      type: boolean
+                  required:
+                  - kind
+                  - name
+                  type: object
+                type: array
               commonMetadata:
                 description: |-
                   CommonMetadata specifies the common labels and annotations that are
@@ -98,36 +132,6 @@ spec:
                   vendor:
                     description: Vendor denotes running kcl in the vendor mode.
                     type: boolean
-                type: object
-              configReference:
-                description: |-
-                  ConfigReference holds references to ConfigMaps and Secrets containing
-                  the KCL compile config. The ConfigMap and the Secret data keys represent the config names.
-                properties:
-                  kind:
-                    description: Kind of the values referent, valid values are ('Secret',
-                      'ConfigMap').
-                    enum:
-                    - Secret
-                    - ConfigMap
-                    type: string
-                  name:
-                    description: |-
-                      Name of the values referent. Should reside in the same namespace as the
-                      referring resource.
-                    maxLength: 253
-                    minLength: 1
-                    type: string
-                  optional:
-                    default: false
-                    description: |-
-                      Optional indicates whether the referenced resource must exist, or whether to
-                      tolerate its absence. If true and the referenced resource is absent, proceed
-                      as if the resource was present but empty, without any variables defined.
-                    type: boolean
-                required:
-                - kind
-                - name
                 type: object
               dependsOn:
                 description: |-
