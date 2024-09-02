@@ -13,7 +13,7 @@ import (
 )
 
 // Compile the KCL source code into kubernetes manifests.
-func CompileKclPackage(obj *v1alpha1.KCLRun, pkgPath string) (*kcl.KCLResultList, error) {
+func CompileKclPackage(obj *v1alpha1.KCLRun, pkgPath string, vars map[string]string) (*kcl.KCLResultList, error) {
 	cli, _ := client.NewKpmClient()
 	opts := opt.DefaultCompileOptions()
 
@@ -29,7 +29,13 @@ func CompileKclPackage(obj *v1alpha1.KCLRun, pkgPath string) (*kcl.KCLResultList
 		opts.Merge(kcl.WithSettings(settings))
 		opts.SetHasSettingsYaml(true)
 	}
+	// Build KCL top level arguments
+	var options []string
+	for k, v := range vars {
+		options = append(options, fmt.Sprintf("%s=%s", k, v))
+	}
 	if obj != nil {
+		options = append(options, obj.Spec.Config.Arguments...)
 		if obj.Spec.Config != nil {
 			for _, s := range obj.Spec.Config.Settings {
 				opts.Merge(kcl.WithSettings(s))
@@ -37,7 +43,7 @@ func CompileKclPackage(obj *v1alpha1.KCLRun, pkgPath string) (*kcl.KCLResultList
 			}
 			opts.SetVendor(obj.Spec.Config.Vendor)
 			opts.Merge(
-				kcl.WithOptions(obj.Spec.Config.Arguments...),
+				kcl.WithOptions(options...),
 				kcl.WithOverrides(obj.Spec.Config.Overrides...),
 				kcl.WithSelectors(obj.Spec.Config.PathSelectors...),
 				kcl.WithSortKeys(obj.Spec.Config.SortKeys),

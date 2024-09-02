@@ -35,7 +35,7 @@ func TestKCLRunDeserialize(t *testing.T) {
 	assert.Equal(t, "/path/to/kcl_mod_file_path", kclRun.Spec.Path)
 	assert.NotNil(t, kclRun.Spec.Config)
 	assert.Contains(t, kclRun.Spec.Config.Arguments, "env=\"prod\"")
-	assert.NotNil(t, kclRun.Spec.ConfigReference)
-	assert.Equal(t, "ConfigMap", kclRun.Spec.ConfigReference.Kind)
-	assert.Equal(t, "config-map-reference", kclRun.Spec.ConfigReference.Name)
+	assert.NotNil(t, kclRun.Spec.ArgumentsReferences)
+	assert.Equal(t, "ConfigMap", kclRun.Spec.ArgumentsReferences[0].Kind)
+	assert.Equal(t, "config-map-reference", kclRun.Spec.ArgumentsReferences[0].Name)
 }

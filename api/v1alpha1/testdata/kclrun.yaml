@@ -39,10 +39,10 @@ spec:
     sortKeys: true
     showHidden: false
     disableNone: true
-  configReference:
-    kind: ConfigMap
-    name: config-map-reference
-    optional: false
+  argumentsReferences:
+    - kind: ConfigMap
+      name: config-map-reference
+      optional: false
   prune: true
   healthChecks:
     - kind: Pod
