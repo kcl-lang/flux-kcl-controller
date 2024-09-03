@@ -19,15 +19,13 @@ package v1alpha1
 import (
 	"time"
 
-	kc "github.com/fluxcd/kustomize-controller/api/v1"
 	"github.com/fluxcd/pkg/apis/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	runtime "k8s.io/apimachinery/pkg/runtime"
 )
 
 const (
 	KCLRunKind                = "KCLRun"
-	KCLRunFinalizer           = "finalizers.fluxcd.io"
+	KCLRunFinalizer           = "finalizers.krm.kcl.dev.fluxcd"
 	MaxConditionMessageLength = 20000
 	EnabledValue              = "enabled"
 	DisabledValue             = "disabled"
@@ -119,10 +117,6 @@ type KCLRunSpec struct {
 	// +optional
 	Path string `json:"path,omitempty" yaml:"path,omitempty"`
 
-	// Params are the parameters in key-value pairs format.
-	// +optional
-	Params map[string]runtime.RawExtension `json:"params,omitempty" yaml:"params,omitempty"`
-
 	// Config is the KCL compile config.
 	// +optional
 	Config *ConfigSpec `json:"config,omitempty" yaml:"config,omitempty"`
@@ -147,7 +141,7 @@ type KCLRunSpec struct {
 
 	// Reference of the source where the kcl file is.
 	// +required
-	SourceRef kc.CrossNamespaceSourceReference `json:"sourceRef"`
+	SourceRef CrossNamespaceSourceReference `json:"sourceRef"`
 
 	// This flag tells the controller to suspend subsequent kustomize executions,
 	// it does not apply to already started executions. Defaults to false.
@@ -256,7 +250,8 @@ type KCLRun struct {
 	metav1.TypeMeta   `json:",inline" yaml:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty" yaml:"metadata,omitempty"`
 
-	Spec   KCLRunSpec   `json:"spec,omitempty" yaml:"spec,omitempty"`
+	Spec KCLRunSpec `json:"spec,omitempty" yaml:"spec,omitempty"`
+	// +kubebuilder:default:={"observedGeneration":-1}
 	Status KCLRunStatus `json:"status,omitempty" yaml:"status,omitempty"`
 }
 
@@ -274,18 +269,18 @@ func init() {
 }
 
 // GetConditions returns the status conditions of the object.
-func (in KCLRun) GetConditions() []metav1.Condition {
+func (in *KCLRun) GetConditions() []metav1.Condition {
 	return in.Status.Conditions
 }
 
 // SetConditions sets the status conditions on the object.
-func (in KCLRun) SetConditions(conditions []metav1.Condition) {
+func (in *KCLRun) SetConditions(conditions []metav1.Condition) {
 	in.Status.Conditions = conditions
 }
 
 // GetReleaseNamespace returns the configured TargetNamespace, or the namespace
 // of the KCLRun.
-func (in KCLRun) GetReleaseNamespace() string {
+func (in *KCLRun) GetReleaseNamespace() string {
 	if in.Spec.TargetNamespace != "" {
 		return in.Spec.TargetNamespace
 	}
@@ -293,7 +288,7 @@ func (in KCLRun) GetReleaseNamespace() string {
 }
 
 // GetTimeout returns the configured Timeout, or the default of 300s.
-func (in KCLRun) GetTimeout() time.Duration {
+func (in *KCLRun) GetTimeout() time.Duration {
 	duration := in.Spec.Interval.Duration - 30*time.Second
 	if in.Spec.Timeout != nil {
 		duration = in.Spec.Timeout.Duration
@@ -305,7 +300,7 @@ func (in KCLRun) GetTimeout() time.Duration {
 }
 
 // GetRetryInterval returns the retry interval
-func (in KCLRun) GetRetryInterval() time.Duration {
+func (in *KCLRun) GetRetryInterval() time.Duration {
 	if in.Spec.RetryInterval != nil {
 		return in.Spec.RetryInterval.Duration
 	}
@@ -314,18 +309,18 @@ func (in KCLRun) GetRetryInterval() time.Duration {
 
 // GetRequeueAfter returns the duration after which the KCLRun must be
 // reconciled again.
-func (in KCLRun) GetRequeueAfter() time.Duration {
+func (in *KCLRun) GetRequeueAfter() time.Duration {
 	return in.Spec.Interval.Duration
 }
 
 // GetDependsOn returns the list of dependencies across-namespaces.
-func (in KCLRun) GetDependsOn() []meta.NamespacedObjectReference {
+func (in *KCLRun) GetDependsOn() []meta.NamespacedObjectReference {
 	return in.Spec.DependsOn
 }
 
 // UsePersistentClient returns the configured PersistentClient, or the default
 // of true.
-func (in KCLRun) UsePersistentClient() bool {
+func (in *KCLRun) UsePersistentClient() bool {
 	if in.Spec.PersistentClient == nil {
 		return true
 	}

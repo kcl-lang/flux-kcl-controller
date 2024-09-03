@@ -100,6 +100,7 @@ func main() {
 
 	flag.Parse()
 	ctrl.SetLogger(logger.NewLogger(logOptions))
+	ctx := ctrl.SetupSignalHandler()
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:           scheme,
@@ -128,7 +129,7 @@ func main() {
 		ControllerName:          controllerName,
 		DefaultServiceAccount:   defaultServiceAccount,
 		Client:                  mgr.GetClient(),
-		Metrics:                 helper.NewMetrics(mgr, metrics.MustMakeRecorder(), "finalizers.krm.kcl.dev.fluxcd"),
+		Metrics:                 helper.NewMetrics(mgr, metrics.MustMakeRecorder(), krmkcldevfluxcdv1alpha1.KCLRunFinalizer),
 		EventRecorder:           eventRecorder,
 		GetClusterConfig:        ctrl.GetConfig,
 		ClientOpts:              clientOptions,
@@ -136,7 +137,7 @@ func main() {
 		PollingOpts:             pollingOpts,
 		StatusPoller:            polling.NewStatusPoller(mgr.GetClient(), mgr.GetRESTMapper(), pollingOpts),
 		DisallowedFieldManagers: disallowedFieldManagers,
-	}).SetupWithManager(mgr, controller.KCLRunReconcilerOptions{
+	}).SetupWithManager(ctx, mgr, controller.KCLRunReconcilerOptions{
 		DependencyRequeueInterval: requeueDependency,
 		HTTPRetry:                 httpRetry,
 	}); err != nil {
