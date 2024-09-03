@@ -227,12 +227,6 @@ spec:
                 required:
                 - secretRef
                 type: object
-              params:
-                additionalProperties:
-                  type: object
-                  x-kubernetes-preserve-unknown-fields: true
-                description: Params are the parameters in key-value pairs format.
-                type: object
               path:
                 description: |-
                   Path to the directory containing the kcl.mod file.
@@ -318,6 +312,8 @@ spec:
             - sourceRef
             type: object
           status:
+            default:
+              observedGeneration: -1
             description: KCLRunStatus defines the observed state of KCLRun
             properties:
               conditions:

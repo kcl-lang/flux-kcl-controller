@@ -5,6 +5,8 @@ import (
 	"os"
 	"testing"
 
+	"github.com/fluxcd/pkg/apis/meta"
+	"github.com/fluxcd/pkg/runtime/conditions"
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/yaml"
@@ -38,4 +40,16 @@ func TestKCLRunDeserialize(t *testing.T) {
 	assert.NotNil(t, kclRun.Spec.ArgumentsReferences)
 	assert.Equal(t, "ConfigMap", kclRun.Spec.ArgumentsReferences[0].Kind)
 	assert.Equal(t, "config-map-reference", kclRun.Spec.ArgumentsReferences[0].Name)
+}
+
+func TestKCLRunConditions(t *testing.T) {
+	obj := &KCLRun{}
+	// Mark the object as ready.
+	conditions.MarkTrue(
+		obj,
+		meta.ReadyCondition,
+		meta.ReconciliationSucceededReason,
+		"Set ready condition is true",
+	)
+	assert.True(t, conditions.IsTrue(obj, meta.ReadyCondition))
 }

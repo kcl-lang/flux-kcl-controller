@@ -1,5 +1,5 @@
 /*
-Copyright The KCL authors
+Copyright 2024 The KCL authors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -48,6 +48,7 @@ import (
 	"github.com/fluxcd/pkg/runtime/acl"
 	runtimeClient "github.com/fluxcd/pkg/runtime/client"
 	"github.com/fluxcd/pkg/runtime/conditions"
+	"github.com/fluxcd/pkg/runtime/jitter"
 	"github.com/fluxcd/pkg/runtime/patch"
 	"github.com/fluxcd/pkg/runtime/predicates"
 	ssautil "github.com/fluxcd/pkg/ssa/utils"
@@ -62,7 +63,6 @@ import (
 	helper "github.com/fluxcd/pkg/runtime/controller"
 	"github.com/fluxcd/pkg/ssa"
 	"github.com/fluxcd/pkg/ssa/normalize"
-	"github.com/fluxcd/pkg/ssa/utils"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 	sourcev1beta2 "github.com/fluxcd/source-controller/api/v1beta2"
 	"github.com/kcl-lang/flux-kcl-controller/api/v1alpha1"
@@ -99,7 +99,25 @@ type KCLRunReconcilerOptions struct {
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *KCLRunReconciler) SetupWithManager(mgr ctrl.Manager, opts KCLRunReconcilerOptions) error {
+func (r *KCLRunReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manager, opts KCLRunReconcilerOptions) error {
+	const (
+		ociRepositoryIndexKey string = ".metadata.ociRepository"
+		gitRepositoryIndexKey string = ".metadata.gitRepository"
+		bucketIndexKey        string = ".metadata.bucket"
+	)
+
+	// Index the KCLRun by the OCIRepository references they (may) point at.
+	if err := mgr.GetCache().IndexField(ctx, &v1alpha1.KCLRun{}, ociRepositoryIndexKey,
+		r.indexBy(sourcev1beta2.OCIRepositoryKind)); err != nil {
+		return fmt.Errorf("failed setting index fields: %w", err)
+	}
+
+	// Index the KCLRun by the GitRepository references they (may) point at.
+	if err := mgr.GetCache().IndexField(ctx, &v1alpha1.KCLRun{}, gitRepositoryIndexKey,
+		r.indexBy(sourcev1.GitRepositoryKind)); err != nil {
+		return fmt.Errorf("failed setting index fields: %w", err)
+	}
+
 	// Setup the artifact fetcher
 	r.artifactFetcher = fetch.New(
 		fetch.WithRetries(opts.HTTPRetry),
@@ -145,33 +163,33 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res
 	log := ctrl.LoggerFrom(ctx)
 	reconcileStart := time.Now()
 	// Get KCL source object
-	var obj v1alpha1.KCLRun
-	if err := r.Get(ctx, req.NamespacedName, &obj); err != nil {
+	obj := &v1alpha1.KCLRun{}
+	if err := r.Get(ctx, req.NamespacedName, obj); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	// Initialize the runtime patcher with the current version of the object.
-	patcher := patch.NewSerialPatcher(&obj, r.Client)
+	patcher := patch.NewSerialPatcher(obj, r.Client)
 
 	// Finalise the reconciliation and report the results.
 	defer func() {
 		// Patch finalizers, status and conditions.
-		if err := r.finalizeStatus(ctx, &obj, patcher); err != nil {
+		if err := r.finalizeStatus(ctx, obj, patcher); err != nil {
 			retErr = kerrors.NewAggregate([]error{retErr, err})
 		}
 
 		// Record Prometheus metrics.
-		r.Metrics.RecordReadiness(ctx, &obj)
-		r.Metrics.RecordDuration(ctx, &obj, reconcileStart)
-		r.Metrics.RecordSuspend(ctx, &obj, obj.Spec.Suspend)
+		r.Metrics.RecordReadiness(ctx, obj)
+		r.Metrics.RecordDuration(ctx, obj, reconcileStart)
+		r.Metrics.RecordSuspend(ctx, obj, obj.Spec.Suspend)
 
 		// Log and emit success event.
-		if conditions.IsReady(&obj) {
+		if conditions.IsReady(obj) {
 			msg := fmt.Sprintf("Reconciliation finished in %s, next run in %s",
 				time.Since(reconcileStart).String(),
 				obj.Spec.Interval.Duration.String())
 			log.Info(msg, "revision", obj.Status.LastAttemptedRevision)
-			r.event(&obj, obj.Status.LastAppliedRevision, eventv1.EventSeverityInfo, msg,
+			r.event(obj, obj.Status.LastAppliedRevision, eventv1.EventSeverityInfo, msg,
 				map[string]string{
 					v1alpha1.GroupVersion.Group + "/" + eventv1.MetaCommitStatusKey: eventv1.MetaCommitStatusUpdateValue,
 				})
@@ -180,15 +198,15 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res
 
 	// Prune managed resources if the object is under deletion.
 	if !obj.ObjectMeta.DeletionTimestamp.IsZero() {
-		return r.finalize(ctx, &obj)
+		return r.finalize(ctx, obj)
 	}
 
 	// Add finalizer first if it doesn't exist to avoid the race condition
 	// between init and delete.
 	// Note: Finalizers in general can only be added when the deletionTimestamp
 	// is not set.
-	if !controllerutil.ContainsFinalizer(&obj, v1alpha1.KCLRunFinalizer) {
-		controllerutil.AddFinalizer(&obj, v1alpha1.KCLRunFinalizer)
+	if !controllerutil.ContainsFinalizer(obj, v1alpha1.KCLRunFinalizer) {
+		controllerutil.AddFinalizer(obj, v1alpha1.KCLRunFinalizer)
 		return ctrl.Result{Requeue: true}, nil
 	}
 
@@ -198,9 +216,9 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res
 		return ctrl.Result{}, nil
 	}
 
-	source, err := r.getSource(ctx, &obj)
+	source, err := r.getSource(ctx, obj)
 	if err != nil {
-		conditions.MarkFalse(&obj, meta.ReadyCondition, meta.ArtifactFailedReason, "%s", err)
+		conditions.MarkFalse(obj, meta.ReadyCondition, meta.ArtifactFailedReason, "%s", err)
 		if apierrors.IsNotFound(err) {
 			msg := fmt.Sprintf("Source '%s' not found", obj.Spec.SourceRef.String())
 			log.Info(msg)
@@ -208,9 +226,9 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res
 		}
 
 		if acl.IsAccessDenied(err) {
-			conditions.MarkFalse(&obj, meta.ReadyCondition, apiacl.AccessDeniedReason, "%s", err)
+			conditions.MarkFalse(obj, meta.ReadyCondition, apiacl.AccessDeniedReason, "%s", err)
 			log.Error(err, "Access denied to cross-namespace source")
-			r.event(&obj, "unknown", eventv1.EventSeverityError, err.Error(), nil)
+			r.event(obj, "unknown", eventv1.EventSeverityError, err.Error(), nil)
 			return ctrl.Result{RequeueAfter: obj.GetRetryInterval()}, nil
 		}
 		// Retry with backoff on transient errors.
@@ -221,29 +239,31 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res
 	// Requeue the reconciliation if the source artifact is not found.
 	if artifact == nil {
 		msg := fmt.Sprintf("Source artifact not found, retrying in %s", r.requeueDependency.String())
-		conditions.MarkFalse(&obj, meta.ReadyCondition, meta.ArtifactFailedReason, "%s", msg)
+		conditions.MarkFalse(obj, meta.ReadyCondition, meta.ArtifactFailedReason, "%s", msg)
 		log.Info(msg)
 		return ctrl.Result{RequeueAfter: r.requeueDependency}, nil
 	}
 
 	// Check dependencies and requeue the reconciliation if the check fails.
 	if len(obj.Spec.DependsOn) > 0 {
-		if err := r.checkDependencies(ctx, &obj, source); err != nil {
-			conditions.MarkFalse(&obj, meta.ReadyCondition, meta.DependencyNotReadyReason, "%s", err)
+		if err := r.checkDependencies(ctx, obj, source); err != nil {
+			conditions.MarkFalse(obj, meta.ReadyCondition, meta.DependencyNotReadyReason, "%s", err)
 			msg := fmt.Sprintf("Dependencies do not meet ready condition, retrying in %s", r.requeueDependency.String())
 			log.Info(msg)
-			r.event(&obj, artifact.Revision, eventv1.EventSeverityInfo, msg, nil)
+			r.event(obj, artifact.Revision, eventv1.EventSeverityInfo, msg, nil)
 			return ctrl.Result{RequeueAfter: r.requeueDependency}, nil
 		}
 		log.Info("All dependencies are ready, proceeding with reconciliation")
 	}
 
-	progressingMsg := fmt.Sprintf("new revision detected %s", artifact.Revision)
+	// Report progress and set last attempted revision in status.
+	obj.Status.LastAttemptedRevision = artifact.Revision
+	progressingMsg := fmt.Sprintf("Building manifests for revision %s with a timeout of %s", artifact.Revision, obj.GetTimeout().String())
 	log.Info(progressingMsg)
-	conditions.MarkUnknown(&obj, meta.ReadyCondition, meta.ProgressingReason, "Reconciliation in progress")
-	conditions.MarkReconciling(&obj, meta.ProgressingReason, progressingMsg)
+	conditions.MarkUnknown(obj, meta.ReadyCondition, meta.ProgressingReason, "Reconciliation in progress")
+	conditions.MarkReconciling(obj, meta.ProgressingReason, progressingMsg)
 
-	if err := r.patch(ctx, &obj, patcher); err != nil {
+	if err := r.patch(ctx, obj, patcher); err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to update status: %w", err)
 	}
 
@@ -256,26 +276,26 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res
 	// Create tmp dir
 	tmpDir, err := os.MkdirTemp("", obj.Name)
 	if err != nil {
-		conditions.MarkFalse(&obj, meta.ReadyCondition, sourcev1.DirCreationFailedReason, err.Error())
+		conditions.MarkFalse(obj, meta.ReadyCondition, sourcev1.DirCreationFailedReason, err.Error())
 		return ctrl.Result{}, fmt.Errorf("failed to create temp dir, error: %w", err)
 	}
 	defer os.RemoveAll(tmpDir)
 	log.Info("fetching......")
 	// Download and extract artifact
 	if err := r.artifactFetcher.Fetch(artifact.URL, artifact.Digest, tmpDir); err != nil {
-		conditions.MarkFalse(&obj, meta.ReadyCondition, "failed fetch artifacts", err.Error())
+		conditions.MarkFalse(obj, meta.ReadyCondition, "failed fetch artifacts", err.Error())
 		log.Error(err, "unable to fetch artifact")
 		return ctrl.Result{}, err
 	}
 	// Check build path exists
 	dirPath, err := securejoin.SecureJoin(tmpDir, obj.Spec.Path)
 	if err != nil {
-		conditions.MarkFalse(&obj, meta.ReadyCondition, meta.ArtifactFailedReason, "%s", err)
+		conditions.MarkFalse(obj, meta.ReadyCondition, meta.ArtifactFailedReason, "%s", err)
 		return ctrl.Result{}, err
 	}
 	if _, err := os.Stat(dirPath); err != nil {
 		err = fmt.Errorf("KCL package path not found: %w", err)
-		conditions.MarkFalse(&obj, meta.ReadyCondition, meta.ArtifactFailedReason, "%s", err)
+		conditions.MarkFalse(obj, meta.ReadyCondition, meta.ArtifactFailedReason, "%s", err)
 		return ctrl.Result{}, err
 	}
 	vars := make(map[string]string)
@@ -311,15 +331,15 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res
 		}
 	}
 	// Compile the KCL source code into the Kubernetes manifests
-	res, err := kcl.CompileKclPackage(&obj, dirPath, vars)
+	res, err := kcl.CompileKclPackage(obj, dirPath, vars)
 	if err != nil {
-		conditions.MarkFalse(&obj, meta.ReadyCondition, "FetchFailed", err.Error())
-		log.Error(err, "failed to compile the KCL source code")
+		conditions.MarkFalse(obj, meta.ReadyCondition, "FetchFailed", err.Error())
+		log.Error(err, fmt.Sprintf("failed to compile the KCL source code path %s", dirPath))
 		return ctrl.Result{}, err
 	}
-	objects, err := utils.ReadObjects(bytes.NewReader(([]byte(res.GetRawYamlResult()))))
+	objects, err := ssautil.ReadObjects(bytes.NewReader(([]byte(res.GetRawYamlResult()))))
 	if err != nil {
-		conditions.MarkFalse(&obj, meta.ReadyCondition, "CompileFailed", err.Error())
+		conditions.MarkFalse(obj, meta.ReadyCondition, "CompileFailed", err.Error())
 		log.Error(err, "failed to compile the yaml str into kubernetes manifests")
 		return ctrl.Result{}, err
 	}
@@ -339,17 +359,17 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res
 	// Create the Kubernetes client that runs under impersonation.
 	kubeClient, statusPoller, err := impersonation.GetClient(ctx)
 	if err != nil {
-		conditions.MarkFalse(&obj, meta.ReadyCondition, meta.ReconciliationFailedReason, "%s", err)
+		conditions.MarkFalse(obj, meta.ReadyCondition, meta.ReconciliationFailedReason, "%s", err)
 		return ctrl.Result{}, fmt.Errorf("failed to build kube client: %w", err)
 	}
 
 	if err != nil {
-		conditions.MarkFalse(&obj, meta.ReadyCondition, "RESTClientError", "%s", err)
+		conditions.MarkFalse(obj, meta.ReadyCondition, "RESTClientError", "%s", err)
 		return ctrl.Result{}, err
 	}
 	// Remove any stale corresponding Ready=False condition with Unknown.
-	if conditions.HasAnyReason(&obj, meta.ReadyCondition, "RESTClientError") {
-		conditions.MarkUnknown(&obj, meta.ReadyCondition, meta.ProgressingReason, "reconciliation in progress")
+	if conditions.HasAnyReason(obj, meta.ReadyCondition, "RESTClientError") {
+		conditions.MarkUnknown(obj, meta.ReadyCondition, meta.ProgressingReason, "reconciliation in progress")
 	}
 
 	rm := ssa.NewResourceManager(kubeClient, statusPoller, ssa.Owner{
@@ -361,9 +381,9 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res
 	// Apply the manifests
 	log.Info(fmt.Sprintf("applying %s", obj.GetName()))
 	// Validate and apply resources in stages.
-	drifted, changeSet, err := r.apply(ctx, rm, &obj, artifact.Revision, objects)
+	drifted, changeSet, err := r.apply(ctx, rm, obj, artifact.Revision, objects)
 	if err != nil {
-		conditions.MarkFalse(&obj, meta.ReadyCondition, "ApplyFailed", err.Error())
+		conditions.MarkFalse(obj, meta.ReadyCondition, "ApplyFailed", err.Error())
 		err = fmt.Errorf("failed to run server-side apply: %w", err)
 		return ctrl.Result{}, err
 	}
@@ -374,9 +394,11 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res
 	newInventory := inventory.New()
 	err = inventory.AddChangeSet(newInventory, changeSet)
 	if err != nil {
-		conditions.MarkFalse(&obj, meta.ReadyCondition, meta.ReconciliationFailedReason, "%s", err)
+		conditions.MarkFalse(obj, meta.ReadyCondition, meta.ReconciliationFailedReason, "%s", err)
 		return ctrl.Result{}, err
 	}
+
+	log.Info("set last applied inventory in status.")
 
 	// Set last applied inventory in status.
 	obj.Status.Inventory = newInventory
@@ -384,13 +406,13 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res
 	// Detect stale resources which are subject to garbage collection.
 	staleObjects, err := inventory.Diff(oldInventory, newInventory)
 	if err != nil {
-		conditions.MarkFalse(&obj, meta.ReadyCondition, meta.ReconciliationFailedReason, "%s", err)
+		conditions.MarkFalse(obj, meta.ReadyCondition, meta.ReconciliationFailedReason, "%s", err)
 		return ctrl.Result{}, err
 	}
 
 	// Run garbage collection for stale resources that do not have pruning disabled.
-	if _, err := r.prune(ctx, rm, &obj, artifact.Revision, staleObjects); err != nil {
-		conditions.MarkFalse(&obj, meta.ReadyCondition, meta.PruneFailedReason, "%s", err)
+	if _, err := r.prune(ctx, rm, obj, artifact.Revision, staleObjects); err != nil {
+		conditions.MarkFalse(obj, meta.ReadyCondition, meta.PruneFailedReason, "%s", err)
 		return ctrl.Result{}, err
 	}
 
@@ -399,29 +421,30 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res
 	if err := r.checkHealth(ctx,
 		rm,
 		patcher,
-		&obj,
+		obj,
 		artifact.Revision,
 		isNewRevision,
 		drifted,
 		changeSet.ToObjMetadataSet()); err != nil {
-		conditions.MarkFalse(&obj, meta.ReadyCondition, meta.HealthCheckFailedReason, "%s", err)
+		conditions.MarkFalse(obj, meta.ReadyCondition, meta.HealthCheckFailedReason, "%s", err)
 		return ctrl.Result{}, err
 	}
+
+	log.Info(fmt.Sprintf("set last applied revision %s in status.", artifact.Revision))
 
 	// Set last applied revision.
 	obj.Status.LastAppliedRevision = artifact.Revision
 
 	// Mark the object as ready.
-	conditions.MarkTrue(&obj,
+	conditions.MarkTrue(
+		obj,
 		meta.ReadyCondition,
 		meta.ReconciliationSucceededReason,
-		fmt.Sprintf("Applied revision: %s", artifact.Revision))
+		fmt.Sprintf("Applied revision: %s", artifact.Revision),
+	)
 
-	if err := r.Status().Update(ctx, &obj); err != nil {
-		return ctrl.Result{}, err
-	}
-
-	return ctrl.Result{}, nil
+	// Requeue the reconciliation at the specified interval.
+	return ctrl.Result{RequeueAfter: jitter.JitteredIntervalDuration(obj.GetRequeueAfter())}, nil
 }
 
 func (r *KCLRunReconciler) checkDependencies(ctx context.Context,
@@ -1037,4 +1060,23 @@ func (r *KCLRunReconciler) patch(ctx context.Context,
 	}
 
 	return nil
+}
+
+func (r *KCLRunReconciler) indexBy(kind string) func(o client.Object) []string {
+	return func(o client.Object) []string {
+		k, ok := o.(*v1alpha1.KCLRun)
+		if !ok {
+			panic(fmt.Sprintf("Expected a KCLRun, got %T", o))
+		}
+
+		if k.Spec.SourceRef.Kind == kind {
+			namespace := k.GetNamespace()
+			if k.Spec.SourceRef.Namespace != "" {
+				namespace = k.Spec.SourceRef.Namespace
+			}
+			return []string{fmt.Sprintf("%s/%s", namespace, k.Spec.SourceRef.Name)}
+		}
+
+		return nil
+	}
 }
