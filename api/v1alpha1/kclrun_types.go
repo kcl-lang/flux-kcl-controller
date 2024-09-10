@@ -121,7 +121,7 @@ type KCLRunSpec struct {
 	// +optional
 	Config *ConfigSpec `json:"config,omitempty" yaml:"config,omitempty"`
 
-	// ConfigReference holds references to ConfigMaps and Secrets containing
+	// ArgumentReferences holds references to ConfigMaps and Secrets containing
 	// the KCL compile config. The ConfigMap and the Secret data keys represent the config names.
 	// +optional
 	ArgumentsReferences []ArgumentReference `json:"argumentsReferences,omitempty" yaml:"argumentsReferences,omitempty"`
