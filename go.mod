@@ -1,8 +1,7 @@
 module github.com/kcl-lang/flux-kcl-controller
 
 go 1.22.4
-
-toolchain go1.22.6
+toolchain go1.23.1
 
 // Replace digest lib to master to gather access to BLAKE3.
 // xref: https://github.com/opencontainers/go-digest/pull/66
@@ -25,8 +24,8 @@ require (
 	github.com/stretchr/testify v1.9.0
 	k8s.io/apimachinery v0.31.1
 	k8s.io/client-go v0.31.1
-	kcl-lang.io/kcl-go v0.10.0-rc.1
-	kcl-lang.io/kpm v0.10.0-rc.1
+	kcl-lang.io/kcl-go v0.10.1
+	kcl-lang.io/kpm v0.10.0
 	sigs.k8s.io/controller-runtime v0.19.0
 )
 
@@ -167,12 +166,12 @@ require (
 	google.golang.org/genproto v0.0.0-20240624140628-dc46fd24d27d // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20240624140628-dc46fd24d27d // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240701130421-f6361c86f094 // indirect
-	google.golang.org/grpc v1.66.0 // indirect
+	google.golang.org/grpc v1.66.2 // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.12.0 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	k8s.io/cli-runtime v0.31.1 // indirect
 	k8s.io/kubectl v0.31.1 // indirect
-	kcl-lang.io/lib v0.10.0-rc.1 // indirect
+	kcl-lang.io/lib v0.10.0 // indirect
 	oras.land/oras-go v1.2.6 // indirect
 	oras.land/oras-go/v2 v2.5.0 // indirect
 	sigs.k8s.io/kustomize/api v0.17.3 // indirect
