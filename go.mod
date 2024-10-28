@@ -23,7 +23,7 @@ require (
 	github.com/stretchr/testify v1.9.0
 	k8s.io/apimachinery v0.31.1
 	k8s.io/client-go v0.31.1
-	kcl-lang.io/kcl-go v0.10.6
+	kcl-lang.io/kcl-go v0.10.7
 	kcl-lang.io/kpm v0.10.0
 	sigs.k8s.io/controller-runtime v0.19.0
 )
@@ -169,7 +169,7 @@ require (
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	k8s.io/cli-runtime v0.31.1 // indirect
 	k8s.io/kubectl v0.31.1 // indirect
-	kcl-lang.io/lib v0.10.6 // indirect
+	kcl-lang.io/lib v0.10.7 // indirect
 	oras.land/oras-go v1.2.6 // indirect
 	oras.land/oras-go/v2 v2.5.0 // indirect
 	sigs.k8s.io/kustomize/api v0.17.3 // indirect
