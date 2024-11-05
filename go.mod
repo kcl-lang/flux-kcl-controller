@@ -23,7 +23,7 @@ require (
 	github.com/stretchr/testify v1.9.0
 	k8s.io/apimachinery v0.31.1
 	k8s.io/client-go v0.31.1
-	kcl-lang.io/kcl-go v0.10.7
+	kcl-lang.io/kcl-go v0.10.8
 	kcl-lang.io/kpm v0.10.0
 	sigs.k8s.io/controller-runtime v0.19.0
 )
@@ -75,7 +75,7 @@ require (
 	github.com/elliotchance/orderedmap/v2 v2.4.0 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
 	github.com/exponent-io/jsonpath v0.0.0-20210407135951-1de76d718b3f // indirect
-	github.com/fatih/color v1.17.0 // indirect
+	github.com/fatih/color v1.18.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/fxamacker/cbor/v2 v2.7.0 // indirect
 	github.com/go-errors/errors v1.5.1 // indirect
@@ -85,7 +85,7 @@ require (
 	github.com/go-jose/go-jose/v4 v4.0.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-test/deep v1.0.8 // indirect
-	github.com/goccy/go-yaml v1.12.0 // indirect
+	github.com/goccy/go-yaml v1.13.4 // indirect
 	github.com/gofrs/flock v0.12.1 // indirect
 	github.com/golang-collections/collections v0.0.0-20130729185459-604e922904d3 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
@@ -159,7 +159,6 @@ require (
 	golang.org/x/crypto v0.28.0 // indirect
 	golang.org/x/mod v0.21.0 // indirect
 	golang.org/x/sync v0.8.0 // indirect
-	golang.org/x/xerrors v0.0.0-20231012003039-104605ab7028 // indirect
 	google.golang.org/api v0.186.0 // indirect
 	google.golang.org/genproto v0.0.0-20240624140628-dc46fd24d27d // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20240814211410-ddb44dafa142 // indirect
@@ -169,7 +168,7 @@ require (
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	k8s.io/cli-runtime v0.31.1 // indirect
 	k8s.io/kubectl v0.31.1 // indirect
-	kcl-lang.io/lib v0.10.7 // indirect
+	kcl-lang.io/lib v0.10.8 // indirect
 	oras.land/oras-go v1.2.6 // indirect
 	oras.land/oras-go/v2 v2.5.0 // indirect
 	sigs.k8s.io/kustomize/api v0.17.3 // indirect
