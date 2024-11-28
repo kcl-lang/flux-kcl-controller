@@ -3,9 +3,6 @@
 # It should be run by config/default
 resources:
 - bases/krm.kcl.dev.fluxcd_kclruns.yaml
-- bases/gitrepositories.yaml
-- bases/ocirepositories.yaml
-- bases/buckets.yaml
 #+kubebuilder:scaffold:crdkustomizeresource
 
 patches:
