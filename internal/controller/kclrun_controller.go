@@ -363,10 +363,6 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res
 		return ctrl.Result{}, fmt.Errorf("failed to build kube client: %w", err)
 	}
 
-	if err != nil {
-		conditions.MarkFalse(obj, meta.ReadyCondition, "RESTClientError", "%s", err)
-		return ctrl.Result{}, err
-	}
 	// Remove any stale corresponding Ready=False condition with Unknown.
 	if conditions.HasAnyReason(obj, meta.ReadyCondition, "RESTClientError") {
 		conditions.MarkUnknown(obj, meta.ReadyCondition, meta.ProgressingReason, "reconciliation in progress")
