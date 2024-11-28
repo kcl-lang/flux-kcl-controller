@@ -96,7 +96,6 @@ func main() {
 	rateLimiterOptions.BindFlags(flag.CommandLine)
 	kubeConfigOpts.BindFlags(flag.CommandLine)
 	watchOptions.BindFlags(flag.CommandLine)
-	logOptions.BindFlags(flag.CommandLine)
 
 	flag.Parse()
 	ctrl.SetLogger(logger.NewLogger(logOptions))
@@ -147,7 +146,7 @@ func main() {
 	// +kubebuilder:scaffold:builder
 
 	setupLog.Info("starting manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+	if err := mgr.Start(ctx); err != nil {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
