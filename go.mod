@@ -17,7 +17,7 @@ require (
 	github.com/fluxcd/pkg/testserver v0.7.0
 	github.com/fluxcd/source-controller/api v1.4.1
 	github.com/hashicorp/vault/api v1.15.0
-	github.com/onsi/gomega v1.36.0
+	github.com/onsi/gomega v1.36.1
 	github.com/ory/dockertest v3.3.5+incompatible
 	github.com/spf13/pflag v1.0.5
 	github.com/stretchr/testify v1.10.0
