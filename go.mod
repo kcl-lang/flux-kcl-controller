@@ -24,7 +24,7 @@ require (
 	k8s.io/apimachinery v0.31.1
 	k8s.io/client-go v0.31.1
 	kcl-lang.io/kcl-go v0.11.0
-	kcl-lang.io/kpm v0.11.0-alpha.2
+	kcl-lang.io/kpm v0.11.0
 	sigs.k8s.io/controller-runtime v0.19.0
 )
 
@@ -73,7 +73,7 @@ require (
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/dominikbraun/graph v0.23.0 // indirect
 	github.com/ebitengine/purego v0.7.1 // indirect
-	github.com/elliotchance/orderedmap/v2 v2.5.0 // indirect
+	github.com/elliotchance/orderedmap/v2 v2.6.0 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
 	github.com/exponent-io/jsonpath v0.0.0-20210407135951-1de76d718b3f // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
