@@ -19,7 +19,7 @@ require (
 	github.com/hashicorp/vault/api v1.15.0
 	github.com/onsi/gomega v1.36.2
 	github.com/ory/dockertest v3.3.5+incompatible
-	github.com/spf13/pflag v1.0.5
+	github.com/spf13/pflag v1.0.6
 	github.com/stretchr/testify v1.10.0
 	k8s.io/apimachinery v0.31.1
 	k8s.io/client-go v0.31.1
@@ -177,7 +177,7 @@ require (
 require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/cyphar/filepath-securejoin v0.4.0
+	github.com/cyphar/filepath-securejoin v0.4.1
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/emicklei/go-restful/v3 v3.12.0 // indirect
 	github.com/evanphx/json-patch/v5 v5.9.0 // indirect
