@@ -16,7 +16,7 @@ require (
 	github.com/fluxcd/pkg/tar v0.8.1
 	github.com/fluxcd/pkg/testserver v0.7.0
 	github.com/fluxcd/source-controller/api v1.4.1
-	github.com/hashicorp/vault/api v1.21.0
+	github.com/hashicorp/vault/api v1.22.0
 	github.com/onsi/gomega v1.38.2
 	github.com/ory/dockertest v3.3.5+incompatible
 	github.com/spf13/pflag v1.0.10
