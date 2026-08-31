@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.16.1
+    controller-gen.kubebuilder.io/version: v0.17.3
   name: kclruns.krm.kcl.dev.fluxcd
 spec:
   group: krm.kcl.dev.fluxcd
@@ -41,7 +41,7 @@ spec:
             properties:
               argumentsReferences:
                 description: |-
-                  ConfigReference holds references to ConfigMaps and Secrets containing
+                  ArgumentReferences holds references to ConfigMaps and Secrets containing
                   the KCL compile config. The ConfigMap and the Secret data keys represent the config names.
                 items:
                   description: ArgumentReference contains a reference to a resource
