@@ -1,6 +1,6 @@
-# We use the Go 1.23 version unless asked to use something else.
+# We use the Go 1.26 version unless asked to use something else.
 # The GitHub Actions CI job sets this argument for a consistent Go version.
-ARG GO_VERSION=1.23
+ARG GO_VERSION=1.26.6
 ARG BASE_IMAGE=kcllang/kcl
 
 # Setup the base environment. The BUILDPLATFORM is set automatically by Docker.
