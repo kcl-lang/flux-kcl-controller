@@ -261,7 +261,7 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res
 	progressingMsg := fmt.Sprintf("Building manifests for revision %s with a timeout of %s", artifact.Revision, obj.GetTimeout().String())
 	log.Info(progressingMsg)
 	conditions.MarkUnknown(obj, meta.ReadyCondition, meta.ProgressingReason, "Reconciliation in progress")
-	conditions.MarkReconciling(obj, meta.ProgressingReason, progressingMsg)
+	conditions.MarkReconciling(obj, meta.ProgressingReason, "Building manifests for revision %s with a timeout of %s", artifact.Revision, obj.GetTimeout().String())
 
 	if err := r.patch(ctx, obj, patcher); err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to update status: %w", err)
@@ -276,14 +276,14 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res
 	// Create tmp dir
 	tmpDir, err := os.MkdirTemp("", obj.Name)
 	if err != nil {
-		conditions.MarkFalse(obj, meta.ReadyCondition, sourcev1.DirCreationFailedReason, err.Error())
+		conditions.MarkFalse(obj, meta.ReadyCondition, sourcev1.DirCreationFailedReason, "%s", err.Error())
 		return ctrl.Result{}, fmt.Errorf("failed to create temp dir, error: %w", err)
 	}
 	defer os.RemoveAll(tmpDir)
 	log.Info("fetching......")
 	// Download and extract artifact
 	if err := r.artifactFetcher.Fetch(artifact.URL, artifact.Digest, tmpDir); err != nil {
-		conditions.MarkFalse(obj, meta.ReadyCondition, "failed fetch artifacts", err.Error())
+		conditions.MarkFalse(obj, meta.ReadyCondition, "failed fetch artifacts", "%s", err.Error())
 		log.Error(err, "unable to fetch artifact")
 		return ctrl.Result{}, err
 	}
@@ -333,13 +333,13 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res
 	// Compile the KCL source code into the Kubernetes manifests
 	res, err := kcl.CompileKclPackage(obj, dirPath, vars)
 	if err != nil {
-		conditions.MarkFalse(obj, meta.ReadyCondition, "FetchFailed", err.Error())
+		conditions.MarkFalse(obj, meta.ReadyCondition, "FetchFailed", "%s", err.Error())
 		log.Error(err, fmt.Sprintf("failed to compile the KCL source code path %s", dirPath))
 		return ctrl.Result{}, err
 	}
 	objects, err := ssautil.ReadObjects(bytes.NewReader(([]byte(res.GetRawYamlResult()))))
 	if err != nil {
-		conditions.MarkFalse(obj, meta.ReadyCondition, "CompileFailed", err.Error())
+		conditions.MarkFalse(obj, meta.ReadyCondition, "CompileFailed", "%s", err.Error())
 		log.Error(err, "failed to compile the yaml str into kubernetes manifests")
 		return ctrl.Result{}, err
 	}
@@ -379,7 +379,7 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res
 	// Validate and apply resources in stages.
 	drifted, changeSet, err := r.apply(ctx, rm, obj, artifact.Revision, objects)
 	if err != nil {
-		conditions.MarkFalse(obj, meta.ReadyCondition, "ApplyFailed", err.Error())
+		conditions.MarkFalse(obj, meta.ReadyCondition, "ApplyFailed", "%s", err.Error())
 		err = fmt.Errorf("failed to run server-side apply: %w", err)
 		return ctrl.Result{}, err
 	}
@@ -436,7 +436,8 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res
 		obj,
 		meta.ReadyCondition,
 		meta.ReconciliationSucceededReason,
-		fmt.Sprintf("Applied revision: %s", artifact.Revision),
+		"Applied revision: %s",
+		artifact.Revision,
 	)
 
 	// Requeue the reconciliation at the specified interval.
