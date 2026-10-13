@@ -19,6 +19,7 @@ package controller
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -33,13 +34,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	securejoin "github.com/cyphar/filepath-securejoin"
-	"github.com/fluxcd/cli-utils/pkg/kstatus/polling"
 	"github.com/fluxcd/cli-utils/pkg/object"
 	apiacl "github.com/fluxcd/pkg/apis/acl"
 	eventv1 "github.com/fluxcd/pkg/apis/event/v1beta1"
@@ -48,6 +49,7 @@ import (
 	"github.com/fluxcd/pkg/runtime/acl"
 	runtimeClient "github.com/fluxcd/pkg/runtime/client"
 	"github.com/fluxcd/pkg/runtime/conditions"
+	"github.com/fluxcd/pkg/runtime/events"
 	"github.com/fluxcd/pkg/runtime/jitter"
 	"github.com/fluxcd/pkg/runtime/patch"
 	"github.com/fluxcd/pkg/runtime/predicates"
@@ -58,13 +60,13 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
-	kuberecorder "k8s.io/client-go/tools/record"
 
+	imagev1 "github.com/fluxcd/image-reflector-controller/api/v1"
 	helper "github.com/fluxcd/pkg/runtime/controller"
 	"github.com/fluxcd/pkg/ssa"
 	"github.com/fluxcd/pkg/ssa/normalize"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
-	sourcev1beta2 "github.com/fluxcd/source-controller/api/v1beta2"
+
 	"github.com/kcl-lang/flux-kcl-controller/api/v1alpha1"
 	"github.com/kcl-lang/flux-kcl-controller/internal/inventory"
 	"github.com/kcl-lang/flux-kcl-controller/internal/kcl"
@@ -75,12 +77,10 @@ import (
 // KCLRunReconciler reconciles a KCLRun object
 type KCLRunReconciler struct {
 	client.Client
-	kuberecorder.EventRecorder
+	events.Recorder
 	helper.Metrics
 
 	ControllerName   string
-	StatusPoller     *polling.StatusPoller
-	PollingOpts      polling.Options
 	GetClusterConfig func() (*rest.Config, error)
 	ClientOpts       runtimeClient.Options
 	KubeConfigOpts   runtimeClient.KubeConfigOptions
@@ -108,7 +108,7 @@ func (r *KCLRunReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manage
 
 	// Index the KCLRun by the OCIRepository references they (may) point at.
 	if err := mgr.GetCache().IndexField(ctx, &v1alpha1.KCLRun{}, ociRepositoryIndexKey,
-		r.indexBy(sourcev1beta2.OCIRepositoryKind)); err != nil {
+		r.indexBy(sourcev1.OCIRepositoryKind)); err != nil {
 		return fmt.Errorf("failed setting index fields: %w", err)
 	}
 
@@ -138,9 +138,14 @@ func (r *KCLRunReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manage
 			builder.WithPredicates(sw.GitRepositoryRevisionChangePredicate{}),
 		).
 		Watches(
-			&sourcev1beta2.OCIRepository{},
+			&sourcev1.OCIRepository{},
 			handler.EnqueueRequestsFromMapFunc(r.requestsForOCIRepositoryChange),
 			builder.WithPredicates(intpredicates.SourceRevisionChangePredicate{}),
+		).
+		Watches(
+			&imagev1.ImagePolicy{},
+			handler.EnqueueRequestsFromMapFunc(r.requestsForImagePolicyChange),
+			builder.WithPredicates(imagePolicyChangePredicate{}),
 		).
 		WithOptions(controller.Options{}).
 		Complete(r)
@@ -149,6 +154,7 @@ func (r *KCLRunReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manage
 //+kubebuilder:rbac:groups=krm.kcl.dev.fluxcd,resources=kclruns,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=krm.kcl.dev.fluxcd,resources=kclruns/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=krm.kcl.dev.fluxcd,resources=kclruns/finalizers,verbs=update
+//+kubebuilder:rbac:groups=image.toolkit.fluxcd.io,resources=imagepolicies,verbs=get;list;watch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -330,6 +336,25 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res
 			}
 		}
 	}
+	// Resolve the images the sources mark for update, so that the manifests
+	// below are built from the images the policies point at.
+	if _, err := kcl.ApplyImagePolicies(dirPath, obj.GetNamespace(), r.imageResolver(ctx)); err != nil {
+		if errors.Is(err, kcl.ErrImagePolicyNotReady) {
+			msg := fmt.Sprintf("Image policies not resolved yet, retrying in %s", r.requeueDependency.String())
+			conditions.MarkFalse(obj, meta.ReadyCondition, v1alpha1.ImagePolicyNotReadyReason, "%s", err)
+			log.Info(msg)
+			r.event(obj, artifact.Revision, eventv1.EventSeverityInfo, msg, nil)
+			return ctrl.Result{RequeueAfter: r.requeueDependency}, nil
+		}
+		// The marker cannot be honoured no matter how often it is retried, so
+		// hold the KCLRun instead of applying images the author did not write.
+		conditions.MarkStalled(obj, v1alpha1.ImagePolicyFailedReason, "%s", err)
+		conditions.MarkFalse(obj, meta.ReadyCondition, v1alpha1.ImagePolicyFailedReason, "%s", err)
+		log.Error(err, "failed to apply image policies")
+		r.event(obj, artifact.Revision, eventv1.EventSeverityError, err.Error(), nil)
+		return ctrl.Result{}, nil
+	}
+
 	// Compile the KCL source code into the Kubernetes manifests
 	res, err := kcl.CompileKclPackage(obj, dirPath, vars)
 	if err != nil {
@@ -348,13 +373,9 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res
 	// Configure the Kubernetes client for impersonation.
 	impersonation := runtimeClient.NewImpersonator(
 		r.Client,
-		r.StatusPoller,
-		r.PollingOpts,
-		obj.Spec.KubeConfig,
-		r.KubeConfigOpts,
-		r.DefaultServiceAccount,
-		obj.Spec.ServiceAccountName,
-		obj.GetNamespace(),
+		runtimeClient.WithScheme(r.Client.Scheme()),
+		runtimeClient.WithKubeConfig(obj.Spec.KubeConfig, r.KubeConfigOpts, obj.GetNamespace(), nil),
+		runtimeClient.WithServiceAccount(r.DefaultServiceAccount, obj.Spec.ServiceAccountName, obj.GetNamespace()),
 	)
 	// Create the Kubernetes client that runs under impersonation.
 	kubeClient, statusPoller, err := impersonation.GetClient(ctx)
@@ -512,8 +533,8 @@ func (r *KCLRunReconciler) getSource(ctx context.Context,
 			return src, fmt.Errorf("unable to get source '%s': %w", namespacedName, err)
 		}
 		src = &repository
-	case sourcev1beta2.OCIRepositoryKind:
-		var repository sourcev1beta2.OCIRepository
+	case sourcev1.OCIRepositoryKind:
+		var repository sourcev1.OCIRepository
 		err := r.Client.Get(ctx, namespacedName, &repository)
 		if err != nil {
 			if apierrors.IsNotFound(err) {
@@ -577,7 +598,7 @@ func (r *KCLRunReconciler) requestsForRevisionChangeOf() handler.MapFunc {
 }
 
 func (r *KCLRunReconciler) requestsForOCIRepositoryChange(ctx context.Context, o client.Object) []reconcile.Request {
-	or, ok := o.(*sourcev1beta2.OCIRepository)
+	or, ok := o.(*sourcev1.OCIRepository)
 	if !ok {
 		err := fmt.Errorf("expected an OCIRepository, got %T", o)
 		ctrl.LoggerFrom(ctx).Error(err, "failed to get requests for OCIRepository change")
@@ -614,6 +635,106 @@ func (r *KCLRunReconciler) requestsForOCIRepositoryChange(ctx context.Context, o
 		reqs = append(reqs, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&list.Items[i])})
 	}
 	return reqs
+}
+
+// imageResolver answers each marker with the image its ImagePolicy currently
+// points at.
+//
+// A policy that is missing, or that has not been scanned yet, reports an error
+// wrapping kcl.ErrImagePolicyNotReady, because the reflector is likely to get
+// there on its own. Anything else is a marker that will never be honoured and is
+// left for the caller to stall on.
+func (r *KCLRunReconciler) imageResolver(ctx context.Context) kcl.ImageResolver {
+	return func(ref kcl.ImagePolicyRef) (string, error) {
+		key := types.NamespacedName{Namespace: ref.Namespace, Name: ref.Name}
+		var policy imagev1.ImagePolicy
+		if err := r.Get(ctx, key, &policy); err != nil {
+			if apierrors.IsNotFound(err) {
+				return "", fmt.Errorf("%w: ImagePolicy %s not found", kcl.ErrImagePolicyNotReady, key)
+			}
+			return "", fmt.Errorf("unable to get ImagePolicy %s: %w", key, err)
+		}
+		if policy.Status.LatestRef == nil {
+			return "", fmt.Errorf("%w: ImagePolicy %s has not reported an image yet",
+				kcl.ErrImagePolicyNotReady, key)
+		}
+		return policy.Status.LatestRef.String(), nil
+	}
+}
+
+// requestsForImagePolicyChange enqueues every KCLRun when a policy elects a new
+// image, so that a marked source is rebuilt without waiting for its interval.
+//
+// The list is cluster wide because the markers live in a KCLRun's artifact
+// rather than in its spec, so there is no field to index them by. An ImagePolicy
+// only changes when the registry publishes a tag that its policy selects, which
+// makes the fan out rare enough to be worth the simplicity.
+func (r *KCLRunReconciler) requestsForImagePolicyChange(ctx context.Context, o client.Object) []reconcile.Request {
+	policy, ok := o.(*imagev1.ImagePolicy)
+	if !ok {
+		err := fmt.Errorf("expected an ImagePolicy, got %T", o)
+		ctrl.LoggerFrom(ctx).Error(err, "failed to get requests for ImagePolicy change")
+		return nil
+	}
+	// Without an image there is nothing new to write into the sources.
+	if policy.Status.LatestRef == nil {
+		return nil
+	}
+
+	var list v1alpha1.KCLRunList
+	if err := r.List(ctx, &list); err != nil {
+		ctrl.LoggerFrom(ctx).Error(err, "failed to list KCLRuns for ImagePolicy change")
+		return nil
+	}
+
+	reqs := make([]reconcile.Request, 0, len(list.Items))
+	for i := range list.Items {
+		reqs = append(reqs, reconcile.Request{
+			NamespacedName: client.ObjectKeyFromObject(&list.Items[i]),
+		})
+	}
+	return reqs
+}
+
+// imagePolicyChangePredicate fires only when the elected image changes. A
+// policy that is merely rescanned, or that has its spec edited, does not
+// change what the sources should say.
+type imagePolicyChangePredicate struct {
+	predicate.Funcs
+}
+
+func (imagePolicyChangePredicate) Update(e event.UpdateEvent) bool {
+	oldPolicy, ok := e.ObjectOld.(*imagev1.ImagePolicy)
+	if !ok {
+		return false
+	}
+	newPolicy, ok := e.ObjectNew.(*imagev1.ImagePolicy)
+	if !ok {
+		return false
+	}
+	return latestImage(oldPolicy) != latestImage(newPolicy)
+}
+
+func (imagePolicyChangePredicate) Create(e event.CreateEvent) bool {
+	policy, ok := e.Object.(*imagev1.ImagePolicy)
+	// A policy that arrives already carrying an image can be honoured at once.
+	return ok && policy.Status.LatestRef != nil
+}
+
+// Deleting a policy tells the sources nothing new, so there is no point in
+// rebuilding every KCLRun over it. The KCLRuns that need it will report the
+// policy as missing the next time they run for any other reason.
+func (imagePolicyChangePredicate) Delete(event.DeleteEvent) bool {
+	return false
+}
+
+// latestImage is what the sources would be rewritten to, or the empty string
+// when the policy has not elected an image.
+func latestImage(policy *imagev1.ImagePolicy) string {
+	if policy.Status.LatestRef == nil {
+		return ""
+	}
+	return policy.Status.LatestRef.String()
 }
 
 func (r *KCLRunReconciler) checkHealth(ctx context.Context,
@@ -735,13 +856,9 @@ func (r *KCLRunReconciler) finalize(ctx context.Context,
 
 		impersonation := runtimeClient.NewImpersonator(
 			r.Client,
-			r.StatusPoller,
-			r.PollingOpts,
-			obj.Spec.KubeConfig,
-			r.KubeConfigOpts,
-			r.DefaultServiceAccount,
-			obj.Spec.ServiceAccountName,
-			obj.GetNamespace(),
+			runtimeClient.WithScheme(r.Client.Scheme()),
+			runtimeClient.WithKubeConfig(obj.Spec.KubeConfig, r.KubeConfigOpts, obj.GetNamespace(), nil),
+			runtimeClient.WithServiceAccount(r.DefaultServiceAccount, obj.Spec.ServiceAccountName, obj.GetNamespace()),
 		)
 		if impersonation.CanImpersonate(ctx) {
 			kubeClient, _, err := impersonation.GetClient(ctx)
@@ -807,7 +924,7 @@ func (r *KCLRunReconciler) event(obj *v1alpha1.KCLRun,
 		eventtype = "Warning"
 	}
 
-	r.EventRecorder.AnnotatedEventf(obj, metadata, eventtype, reason, msg)
+	r.Recorder.AnnotatedEventf(obj, nil, metadata, eventtype, reason, "Reconcile", "%s", msg)
 }
 
 func (r *KCLRunReconciler) apply(ctx context.Context,

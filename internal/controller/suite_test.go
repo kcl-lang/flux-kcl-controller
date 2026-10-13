@@ -28,6 +28,7 @@ import (
 	"github.com/fluxcd/pkg/runtime/conditions"
 	kcheck "github.com/fluxcd/pkg/runtime/conditions/check"
 	"github.com/fluxcd/pkg/runtime/controller"
+	"github.com/fluxcd/pkg/runtime/events"
 	"github.com/fluxcd/pkg/runtime/metrics"
 	"github.com/fluxcd/pkg/runtime/testenv"
 	"github.com/fluxcd/pkg/testserver"
@@ -48,7 +49,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
-	sourcev1beta2 "github.com/fluxcd/source-controller/api/v1beta2"
+
+	imagev1 "github.com/fluxcd/image-reflector-controller/api/v1"
+
 	"github.com/kcl-lang/flux-kcl-controller/api/v1alpha1"
 )
 
@@ -78,7 +81,8 @@ func runInContext(registerControllers func(*testenv.Environment), run func() int
 	// GitRepository
 	utilruntime.Must(sourcev1.AddToScheme(scheme.Scheme))
 	// OCIRepository
-	utilruntime.Must(sourcev1beta2.AddToScheme(scheme.Scheme))
+	// ImagePolicy
+	utilruntime.Must(imagev1.AddToScheme(scheme.Scheme))
 	// KCLRun
 	utilruntime.Must(v1alpha1.AddToScheme(scheme.Scheme))
 
@@ -176,10 +180,17 @@ func TestMain(m *testing.M) {
 		// for inspection.
 		kstatusInProgressCheck = kcheck.NewInProgressChecker(testEnv.Client)
 		kstatusInProgressCheck.DisableFetch = true
+		eventRecorder, err := events.NewRecorder(ctrl.Log, "", controllerName,
+			events.WithManager(testEnv),
+			events.WithScheme(scheme.Scheme),
+		)
+		if err != nil {
+			panic(fmt.Sprintf("Failed to create event recorder: %v", err))
+		}
 		reconciler = &KCLRunReconciler{
 			ControllerName:          controllerName,
 			Client:                  testEnv,
-			EventRecorder:           testEnv.GetEventRecorderFor(controllerName),
+			Recorder:                eventRecorder,
 			Metrics:                 testMetricsH,
 			DisallowedFieldManagers: []string{overrideManagerName},
 		}
@@ -307,7 +318,7 @@ func applyGitRepository(objKey client.ObjectKey, artifactName string, revision s
 				Reason:             sourcev1.GitOperationSucceedReason,
 			},
 		},
-		Artifact: &sourcev1.Artifact{
+		Artifact: &meta.Artifact{
 			Path:           url,
 			URL:            url,
 			Revision:       revision,
