@@ -346,7 +346,7 @@ func newDependsOnFixture(t *testing.T) *dependsOnFixture {
 	g.Expect(createKubeConfigSecret(namespaceName)).To(Succeed(), "failed to create kubeconfig secret")
 
 	artifactName := "val-" + randStringRunes(5)
-	artifactChecksum, err := testServer.ArtifactFromDir("testdata/crds", artifactName)
+	artifactChecksum, err := testServer.ArtifactFromDir("testdata/configmap", artifactName)
 	g.Expect(err).ToNot(HaveOccurred())
 
 	source := types.NamespacedName{
@@ -373,7 +373,7 @@ func (f *dependsOnFixture) newKCLRun(name string, kclRunSpecFn func(*v1alpha1.KC
 		Spec: v1alpha1.KCLRunSpec{
 			Interval: metav1.Duration{Duration: 10 * time.Minute},
 			Prune:    true,
-			Path:     "./testdata/crds",
+			Path:     "./testdata/configmap",
 			SourceRef: v1alpha1.CrossNamespaceSourceReference{
 				Name:      f.source.Name,
 				Namespace: f.source.Namespace,
