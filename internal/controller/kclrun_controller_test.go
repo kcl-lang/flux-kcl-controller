@@ -23,6 +23,7 @@ import (
 	"time"
 
 	imagev1 "github.com/fluxcd/image-reflector-controller/api/v1"
+	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
 	"github.com/fluxcd/pkg/apis/meta"
 	"github.com/fluxcd/pkg/runtime/conditions"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
@@ -319,4 +320,200 @@ func TestKCLRunReconciler_ImagePolicyAnotherRepository(t *testing.T) {
 	err = k8sClient.Get(context.Background(),
 		types.NamespacedName{Namespace: namespaceName, Name: "kcl-controller-image"}, &corev1.ConfigMap{})
 	g.Expect(errors.IsNotFound(err)).To(BeTrue())
+}
+
+type dependsOnFixture struct {
+	namespace    string
+	source       types.NamespacedName
+	revision     string
+	kclRunSpecFn func(*v1alpha1.KCLRunSpec)
+}
+
+// newDependsOnFixture provisions a namespace, a kubeconfig secret and a
+// GitRepository artifact that the tested KCLRun and its dependencies share.
+func newDependsOnFixture(t *testing.T) *dependsOnFixture {
+	t.Helper()
+	g := NewWithT(t)
+
+	namespaceName := "flux-kcl-deps-" + randStringRunes(5)
+	namespace := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{Name: namespaceName},
+	}
+	g.Expect(k8sClient.Create(ctx, namespace)).ToNot(HaveOccurred())
+	t.Cleanup(func() {
+		g.Expect(k8sClient.Delete(ctx, namespace)).NotTo(HaveOccurred())
+	})
+	g.Expect(createKubeConfigSecret(namespaceName)).To(Succeed(), "failed to create kubeconfig secret")
+
+	artifactName := "val-" + randStringRunes(5)
+	artifactChecksum, err := testServer.ArtifactFromDir("testdata/crds", artifactName)
+	g.Expect(err).ToNot(HaveOccurred())
+
+	source := types.NamespacedName{
+		Name:      fmt.Sprintf("val-%s", randStringRunes(5)),
+		Namespace: namespaceName,
+	}
+	g.Expect(applyGitRepository(source, artifactName, "main/"+artifactChecksum)).To(Succeed())
+
+	return &dependsOnFixture{
+		namespace: namespaceName,
+		source:    source,
+		revision:  "main/" + artifactChecksum,
+	}
+}
+
+// newKCLRun builds a KCLRun on the fixture source. The passed callback gets a
+// chance to override the spec, e.g. to add dependencies.
+func (f *dependsOnFixture) newKCLRun(name string, kclRunSpecFn func(*v1alpha1.KCLRunSpec)) *v1alpha1.KCLRun {
+	obj := &v1alpha1.KCLRun{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: f.namespace,
+		},
+		Spec: v1alpha1.KCLRunSpec{
+			Interval: metav1.Duration{Duration: 10 * time.Minute},
+			Prune:    true,
+			Path:     "./testdata/crds",
+			SourceRef: v1alpha1.CrossNamespaceSourceReference{
+				Name:      f.source.Name,
+				Namespace: f.source.Namespace,
+				Kind:      sourcev1.GitRepositoryKind,
+			},
+			KubeConfig: &meta.KubeConfigReference{
+				SecretRef: &meta.SecretKeyReference{
+					Name: "kubeconfig",
+				},
+			},
+		},
+	}
+	if kclRunSpecFn != nil {
+		kclRunSpecFn(&obj.Spec)
+	}
+	return obj
+}
+
+// waitForReady blocks until the named KCLRun reports a successful
+// reconciliation of the fixture revision.
+func (f *dependsOnFixture) waitForReady(t *testing.T, name string) {
+	t.Helper()
+	g := NewWithT(t)
+	key := types.NamespacedName{Namespace: f.namespace, Name: name}
+
+	g.Eventually(func() bool {
+		var obj v1alpha1.KCLRun
+		err := k8sClient.Get(ctx, key, &obj)
+		return err == nil && isReconcileSuccess(&obj) && obj.Status.LastAppliedRevision == f.revision
+	}, timeout, time.Second).Should(BeTrue(), "KCLRun %q never became ready", name)
+}
+
+// TestKCLRunReconciler_DependsOn verifies that spec.dependsOn gates
+// reconciliation on KCLRun and Kustomization objects alike, and that a
+// dependency which is not ready blocks the subject.
+func TestKCLRunReconciler_DependsOn(t *testing.T) {
+	// Each case gets its own fixture so a failing case cannot leak state into
+	// the next one.
+	for _, tc := range []struct {
+		name string
+		// deps returns the dependencies to put on the subject KCLRun.
+		deps func(f *dependsOnFixture) []v1alpha1.DependencyReference
+	}{
+		{
+			name: "defaults to KCLRun when kind is unset",
+			deps: func(f *dependsOnFixture) []v1alpha1.DependencyReference {
+				return []v1alpha1.DependencyReference{{Name: "dep-kclrun"}}
+			},
+		},
+		{
+			name: "explicit KCLRun dependency",
+			deps: func(f *dependsOnFixture) []v1alpha1.DependencyReference {
+				return []v1alpha1.DependencyReference{{Kind: v1alpha1.KCLRunKind, Name: "dep-kclrun"}}
+			},
+		},
+		{
+			name: "Kustomization dependency",
+			deps: func(f *dependsOnFixture) []v1alpha1.DependencyReference {
+				return []v1alpha1.DependencyReference{{Kind: kustomizev1.KustomizationKind, Name: "dep-kustomization"}}
+			},
+		},
+		{
+			name: "KCLRun and Kustomization dependencies",
+			deps: func(f *dependsOnFixture) []v1alpha1.DependencyReference {
+				return []v1alpha1.DependencyReference{
+					{Kind: v1alpha1.KCLRunKind, Name: "dep-kclrun"},
+					{Kind: kustomizev1.KustomizationKind, Name: "dep-kustomization"},
+				}
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			g := NewWithT(t)
+			f := newDependsOnFixture(t)
+
+			// A KCLRun dependency is reconciled by the controller under test.
+			dep := f.newKCLRun("dep-kclrun", nil)
+			g.Expect(k8sClient.Create(ctx, dep)).To(Succeed())
+			f.waitForReady(t, "dep-kclrun")
+
+			// A Kustomization dependency has to be seeded by hand, the
+			// kustomize-controller does not run here.
+			g.Expect(applyKustomization(types.NamespacedName{Name: "dep-kustomization", Namespace: f.namespace},
+				f.source, f.revision, true)).To(Succeed())
+
+			subject := f.newKCLRun("subject", func(spec *v1alpha1.KCLRunSpec) {
+				spec.DependsOn = tc.deps(f)
+			})
+			g.Expect(k8sClient.Create(ctx, subject)).To(Succeed())
+			f.waitForReady(t, "subject")
+		})
+	}
+}
+
+// TestKCLRunReconciler_DependsOnNotReady asserts that a dependency without a
+// ready condition keeps the subject from reconciling.
+func TestKCLRunReconciler_DependsOnNotReady(t *testing.T) {
+	g := NewWithT(t)
+	f := newDependsOnFixture(t)
+
+	// A Kustomization that has not reconciled yet: no conditions at all.
+	g.Expect(applyKustomization(types.NamespacedName{Name: "dep-kustomization", Namespace: f.namespace},
+		f.source, f.revision, false)).To(Succeed())
+
+	subject := f.newKCLRun("subject", func(spec *v1alpha1.KCLRunSpec) {
+		spec.DependsOn = []v1alpha1.DependencyReference{
+			{Kind: kustomizev1.KustomizationKind, Name: "dep-kustomization"},
+		}
+	})
+	g.Expect(k8sClient.Create(ctx, subject)).To(Succeed())
+
+	key := types.NamespacedName{Namespace: subject.Namespace, Name: subject.Name}
+	g.Eventually(func() bool {
+		var obj v1alpha1.KCLRun
+		err := k8sClient.Get(ctx, key, &obj)
+		return err == nil &&
+			conditions.IsFalse(&obj, meta.ReadyCondition) &&
+			conditions.GetReason(&obj, meta.ReadyCondition) == meta.DependencyNotReadyReason
+	}, timeout, time.Second).Should(BeTrue(), "KCLRun reconciled despite an unready dependency")
+}
+
+// TestKCLRunReconciler_DependsOnMissing asserts that a dependency that does not
+// exist keeps the subject from reconciling.
+func TestKCLRunReconciler_DependsOnMissing(t *testing.T) {
+	g := NewWithT(t)
+	f := newDependsOnFixture(t)
+
+	subject := f.newKCLRun("subject", func(spec *v1alpha1.KCLRunSpec) {
+		spec.DependsOn = []v1alpha1.DependencyReference{
+			{Kind: kustomizev1.KustomizationKind, Name: "does-not-exist"},
+		}
+	})
+	g.Expect(k8sClient.Create(ctx, subject)).To(Succeed())
+
+	key := types.NamespacedName{Namespace: subject.Namespace, Name: subject.Name}
+	g.Eventually(func() bool {
+		var obj v1alpha1.KCLRun
+		err := k8sClient.Get(ctx, key, &obj)
+		return err == nil &&
+			conditions.IsFalse(&obj, meta.ReadyCondition) &&
+			conditions.GetReason(&obj, meta.ReadyCondition) == meta.DependencyNotReadyReason
+	}, timeout, time.Second).Should(BeTrue(), "KCLRun reconciled despite a missing dependency")
 }

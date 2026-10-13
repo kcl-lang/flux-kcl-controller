@@ -62,6 +62,7 @@ import (
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
 
 	imagev1 "github.com/fluxcd/image-reflector-controller/api/v1"
+	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
 	helper "github.com/fluxcd/pkg/runtime/controller"
 	"github.com/fluxcd/pkg/ssa"
 	"github.com/fluxcd/pkg/ssa/normalize"
@@ -155,6 +156,7 @@ func (r *KCLRunReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manage
 //+kubebuilder:rbac:groups=krm.kcl.dev.fluxcd,resources=kclruns/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=krm.kcl.dev.fluxcd,resources=kclruns/finalizers,verbs=update
 //+kubebuilder:rbac:groups=image.toolkit.fluxcd.io,resources=imagepolicies,verbs=get;list;watch
+//+kubebuilder:rbac:groups=kustomize.toolkit.fluxcd.io,resources=kustomizations,verbs=get
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -465,6 +467,9 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res
 	return ctrl.Result{RequeueAfter: jitter.JitteredIntervalDuration(obj.GetRequeueAfter())}, nil
 }
 
+// checkDependencies reports whether every object in spec.dependsOn is ready
+// and, when it shares a Source with this KCLRun, applied at the revision the
+// Source currently offers.
 func (r *KCLRunReconciler) checkDependencies(ctx context.Context,
 	obj *v1alpha1.KCLRun,
 	source sourcev1.Source) error {
@@ -476,34 +481,72 @@ func (r *KCLRunReconciler) checkDependencies(ctx context.Context,
 			Namespace: d.Namespace,
 			Name:      d.Name,
 		}
-		var k v1alpha1.KCLRun
-		err := r.Get(ctx, dName, &k)
-		if err != nil {
-			return fmt.Errorf("dependency '%s' not found: %w", dName, err)
+
+		var (
+			generation          int64
+			observedGeneration  int64
+			conditions          []metav1.Condition
+			lastAppliedRev      string
+			sourceKind          string
+			sourceName          string
+			sourceNamespace     string
+			dependencyNamespace string
+		)
+
+		switch d.GetKind() {
+		case v1alpha1.KCLRunKind:
+			var k v1alpha1.KCLRun
+			if err := r.Get(ctx, dName, &k); err != nil {
+				return fmt.Errorf("dependency '%s' not found: %w", d, err)
+			}
+			generation = k.Generation
+			observedGeneration = k.Status.ObservedGeneration
+			conditions = k.Status.Conditions
+			lastAppliedRev = k.Status.LastAppliedRevision
+			sourceKind = k.Spec.SourceRef.Kind
+			sourceName = k.Spec.SourceRef.Name
+			sourceNamespace = k.Spec.SourceRef.Namespace
+			dependencyNamespace = k.GetNamespace()
+		case kustomizev1.KustomizationKind:
+			var k kustomizev1.Kustomization
+			if err := r.Get(ctx, dName, &k); err != nil {
+				return fmt.Errorf("dependency '%s' not found: %w", d, err)
+			}
+			generation = k.Generation
+			observedGeneration = k.Status.ObservedGeneration
+			conditions = k.Status.Conditions
+			lastAppliedRev = k.Status.LastAppliedRevision
+			sourceKind = k.Spec.SourceRef.Kind
+			sourceName = k.Spec.SourceRef.Name
+			sourceNamespace = k.Spec.SourceRef.Namespace
+			dependencyNamespace = k.GetNamespace()
+		default:
+			return fmt.Errorf("unsupported dependency kind '%s' in '%s', must be one of: %s, %s",
+				d.Kind, dName, v1alpha1.KCLRunKind, kustomizev1.KustomizationKind)
 		}
 
-		if len(k.Status.Conditions) == 0 || k.Generation != k.Status.ObservedGeneration {
-			return fmt.Errorf("dependency '%s' is not ready", dName)
+		if len(conditions) == 0 || generation != observedGeneration {
+			return fmt.Errorf("dependency '%s' is not ready", d)
 		}
 
-		if !apimeta.IsStatusConditionTrue(k.Status.Conditions, meta.ReadyCondition) {
-			return fmt.Errorf("dependency '%s' is not ready", dName)
+		if !apimeta.IsStatusConditionTrue(conditions, meta.ReadyCondition) {
+			return fmt.Errorf("dependency '%s' is not ready", d)
 		}
 
-		srcNamespace := k.Spec.SourceRef.Namespace
+		srcNamespace := sourceNamespace
 		if srcNamespace == "" {
-			srcNamespace = k.GetNamespace()
+			srcNamespace = dependencyNamespace
 		}
 		dSrcNamespace := obj.Spec.SourceRef.Namespace
 		if dSrcNamespace == "" {
 			dSrcNamespace = obj.GetNamespace()
 		}
 
-		if k.Spec.SourceRef.Name == obj.Spec.SourceRef.Name &&
+		if sourceName == obj.Spec.SourceRef.Name &&
 			srcNamespace == dSrcNamespace &&
-			k.Spec.SourceRef.Kind == obj.Spec.SourceRef.Kind &&
-			!source.GetArtifact().HasRevision(k.Status.LastAppliedRevision) {
-			return fmt.Errorf("dependency '%s' revision is not up to date", dName)
+			sourceKind == obj.Spec.SourceRef.Kind &&
+			!source.GetArtifact().HasRevision(lastAppliedRev) {
+			return fmt.Errorf("dependency '%s' revision is not up to date", d)
 		}
 	}
 

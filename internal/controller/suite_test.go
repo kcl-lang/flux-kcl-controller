@@ -51,6 +51,7 @@ import (
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 
 	imagev1 "github.com/fluxcd/image-reflector-controller/api/v1"
+	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
 
 	"github.com/kcl-lang/flux-kcl-controller/api/v1alpha1"
 )
@@ -83,6 +84,8 @@ func runInContext(registerControllers func(*testenv.Environment), run func() int
 	// OCIRepository
 	// ImagePolicy
 	utilruntime.Must(imagev1.AddToScheme(scheme.Scheme))
+	// Kustomization, supported as a KCLRun dependency
+	utilruntime.Must(kustomizev1.AddToScheme(scheme.Scheme))
 	// KCLRun
 	utilruntime.Must(v1alpha1.AddToScheme(scheme.Scheme))
 
@@ -349,6 +352,57 @@ func applyGitRepository(objKey client.ObjectKey, artifactName string, revision s
 		return err
 	}
 	return nil
+}
+
+// applyKustomization creates a Kustomization already reporting the given
+// revision as applied and ready. The kustomize-controller does not run in the
+// test environment, so the status has to be seeded by hand for Kustomizations
+// used as KCLRun dependencies.
+func applyKustomization(objKey client.ObjectKey, sourceRef client.ObjectKey, revision string, ready bool) error {
+	kustomization := &kustomizev1.Kustomization{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       kustomizev1.KustomizationKind,
+			APIVersion: kustomizev1.GroupVersion.String(),
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      objKey.Name,
+			Namespace: objKey.Namespace,
+		},
+		Spec: kustomizev1.KustomizationSpec{
+			Interval: metav1.Duration{Duration: time.Minute},
+			Prune:    true,
+			SourceRef: kustomizev1.CrossNamespaceSourceReference{
+				Kind:      sourcev1.GitRepositoryKind,
+				Name:      sourceRef.Name,
+				Namespace: sourceRef.Namespace,
+			},
+		},
+	}
+
+	if err := k8sClient.Create(context.Background(), kustomization); err != nil {
+		return err
+	}
+
+	kustomization.Status.ObservedGeneration = kustomization.Generation
+	if ready {
+		kustomization.Status.Conditions = []metav1.Condition{
+			{
+				Type:               meta.ReadyCondition,
+				Status:             metav1.ConditionTrue,
+				LastTransitionTime: metav1.Now(),
+				Reason:             "ReconciliationSucceeded",
+			},
+		}
+		kustomization.Status.LastAppliedRevision = revision
+	}
+
+	statusOpts := &client.SubResourcePatchOptions{
+		PatchOptions: client.PatchOptions{
+			FieldManager: "kustomize-controller",
+		},
+	}
+
+	return k8sClient.Status().Patch(context.Background(), kustomization, client.Merge, statusOpts)
 }
 
 func createVaultTestInstance() (*dockertest.Pool, *dockertest.Resource, error) {

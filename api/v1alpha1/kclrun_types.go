@@ -54,11 +54,13 @@ type KCLRunSpec struct {
 	// +optional
 	CommonMetadata *CommonMetadata `json:"commonMetadata,omitempty" yaml:"commonMetadata,omitempty"`
 
-	// DependsOn may contain a meta.NamespacedObjectReference slice
-	// with references to Kustomization resources that must be ready before this
-	// Kustomization can be reconciled.
+	// DependsOn may contain a DependencyReference slice
+	// with references to KCLRun or Kustomization resources that must be
+	// ready before this KCLRun can be reconciled.
+	// The `kind` field selects which of the two is referenced and defaults
+	// to `KCLRun` when left empty.
 	// +optional
-	DependsOn []meta.NamespacedObjectReference `json:"dependsOn,omitempty" yaml:"dependsOn,omitempty"`
+	DependsOn []DependencyReference `json:"dependsOn,omitempty" yaml:"dependsOn,omitempty"`
 
 	// Timeout is the time to wait for any individual Kubernetes operation (like Jobs
 	// for hooks) during the performance. Defaults to '5m0s'.
@@ -326,7 +328,7 @@ func (in *KCLRun) GetRequeueAfter() time.Duration {
 }
 
 // GetDependsOn returns the list of dependencies across-namespaces.
-func (in *KCLRun) GetDependsOn() []meta.NamespacedObjectReference {
+func (in *KCLRun) GetDependsOn() []DependencyReference {
 	return in.Spec.DependsOn
 }
 

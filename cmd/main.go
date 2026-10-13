@@ -29,6 +29,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	imagev1 "github.com/fluxcd/image-reflector-controller/api/v1"
+	kustomizev1 "github.com/fluxcd/kustomize-controller/api/v1"
 	"github.com/fluxcd/pkg/runtime/client"
 	"github.com/fluxcd/pkg/runtime/events"
 	"github.com/fluxcd/pkg/runtime/logger"
@@ -55,6 +56,8 @@ func init() {
 	// OCIRepository
 	// ImagePolicy
 	utilruntime.Must(imagev1.AddToScheme(scheme))
+	// Kustomization, supported as a KCLRun dependency
+	utilruntime.Must(kustomizev1.AddToScheme(scheme))
 	// KCLRun
 	utilruntime.Must(krmkcldevfluxcdv1alpha1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme

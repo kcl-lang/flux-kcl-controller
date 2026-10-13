@@ -28,6 +28,8 @@ func TestKCLRunDeserialize(t *testing.T) {
 	assert.Equal(t, "example_value", kclRun.Spec.CommonMetadata.Annotations["some_annotation"])
 	assert.Equal(t, "my-app", kclRun.Spec.CommonMetadata.Labels["app"])
 	assert.Contains(t, kclRun.Spec.DependsOn[0].Name, "my-kustomization")
+	assert.Equal(t, "Kustomization", kclRun.Spec.DependsOn[0].Kind)
+	assert.Equal(t, "Kustomization", kclRun.Spec.DependsOn[0].GetKind())
 	assert.NotNil(t, kclRun.Spec.KubeConfig)
 	assert.Equal(t, "my-kubeconfig", kclRun.Spec.KubeConfig.SecretRef.Name)
 	assert.Equal(t, "my-service-account", kclRun.Spec.ServiceAccountName)
@@ -40,6 +42,15 @@ func TestKCLRunDeserialize(t *testing.T) {
 	assert.NotNil(t, kclRun.Spec.ArgumentsReferences)
 	assert.Equal(t, "ConfigMap", kclRun.Spec.ArgumentsReferences[0].Kind)
 	assert.Equal(t, "config-map-reference", kclRun.Spec.ArgumentsReferences[0].Name)
+}
+
+// TestDependencyReferenceGetKind covers the default applied when dependsOn
+// entries omit the kind, which keeps manifests written before Kustomization
+// was a valid dependency working.
+func TestDependencyReferenceGetKind(t *testing.T) {
+	assert.Equal(t, KCLRunKind, DependencyReference{Name: "d"}.GetKind())
+	assert.Equal(t, KCLRunKind, DependencyReference{Kind: "", Name: "d"}.GetKind())
+	assert.Equal(t, "Kustomization", DependencyReference{Kind: "Kustomization", Name: "d"}.GetKind())
 }
 
 func TestKCLRunConditions(t *testing.T) {
