@@ -375,8 +375,8 @@ func (f *sourceFixture) newKCLRun(name string, kclRunSpecFn func(*v1alpha1.KCLRu
 		},
 		Spec: v1alpha1.KCLRunSpec{
 			Interval: metav1.Duration{Duration: 10 * time.Minute},
-			Prune: true,
-			Path:  "./" + f.artifactDir,
+			Prune:    true,
+			Path:     "./" + f.artifactDir,
 			// The controller does not default the namespace of an applied
 			// manifest, so the fixtures read it from here.
 			Config: &v1alpha1.ConfigSpec{
@@ -455,7 +455,7 @@ func TestKCLRunReconciler_DependsOn(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			g := NewWithT(t)
-			f := newSourceFixture(t, "testdata/crds")
+			f := newSourceFixture(t, "testdata/configmap")
 
 			// A KCLRun dependency is reconciled by the controller under test.
 			dep := f.newKCLRun("dep-kclrun", nil)
@@ -480,7 +480,7 @@ func TestKCLRunReconciler_DependsOn(t *testing.T) {
 // ready condition keeps the subject from reconciling.
 func TestKCLRunReconciler_DependsOnNotReady(t *testing.T) {
 	g := NewWithT(t)
-	f := newSourceFixture(t, "testdata/crds")
+	f := newSourceFixture(t, "testdata/configmap")
 
 	// A Kustomization that has not reconciled yet: no conditions at all.
 	g.Expect(applyKustomization(types.NamespacedName{Name: "dep-kustomization", Namespace: f.namespace},
@@ -507,7 +507,7 @@ func TestKCLRunReconciler_DependsOnNotReady(t *testing.T) {
 // exist keeps the subject from reconciling.
 func TestKCLRunReconciler_DependsOnMissing(t *testing.T) {
 	g := NewWithT(t)
-	f := newSourceFixture(t, "testdata/crds")
+	f := newSourceFixture(t, "testdata/configmap")
 
 	subject := f.newKCLRun("subject", func(spec *v1alpha1.KCLRunSpec) {
 		spec.DependsOn = []v1alpha1.DependencyReference{
@@ -606,7 +606,7 @@ func TestKCLRunReconciler_PackageVersionPin(t *testing.T) {
 // package without a kcl.mod stalls instead of silently applying it.
 func TestKCLRunReconciler_PackageVersionPinRequiresMod(t *testing.T) {
 	g := NewWithT(t)
-	f := newSourceFixture(t, "testdata/crds")
+	f := newSourceFixture(t, "testdata/configmap")
 
 	obj := f.newKCLRun("subject", func(spec *v1alpha1.KCLRunSpec) {
 		spec.Package = &v1alpha1.PackageSpec{Version: "0.1.0"}
