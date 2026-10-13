@@ -322,20 +322,22 @@ func TestKCLRunReconciler_ImagePolicyAnotherRepository(t *testing.T) {
 	g.Expect(errors.IsNotFound(err)).To(BeTrue())
 }
 
-type dependsOnFixture struct {
-	namespace    string
-	source       types.NamespacedName
-	revision     string
-	kclRunSpecFn func(*v1alpha1.KCLRunSpec)
+// sourceFixture holds the per-test state shared by the tests below: a
+// namespace, a kubeconfig secret and a GitRepository serving artifactDir.
+type sourceFixture struct {
+	namespace   string
+	source      types.NamespacedName
+	revision    string
+	artifactDir string
 }
 
-// newDependsOnFixture provisions a namespace, a kubeconfig secret and a
-// GitRepository artifact that the tested KCLRun and its dependencies share.
-func newDependsOnFixture(t *testing.T) *dependsOnFixture {
+// newSourceFixture provisions the namespace, kubeconfig secret and source
+// artifact that the KCLRun under test is built on.
+func newSourceFixture(t *testing.T, artifactDir string) *sourceFixture {
 	t.Helper()
 	g := NewWithT(t)
 
-	namespaceName := "flux-kcl-deps-" + randStringRunes(5)
+	namespaceName := "flux-kcl-" + randStringRunes(5)
 	namespace := &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{Name: namespaceName},
 	}
@@ -346,7 +348,7 @@ func newDependsOnFixture(t *testing.T) *dependsOnFixture {
 	g.Expect(createKubeConfigSecret(namespaceName)).To(Succeed(), "failed to create kubeconfig secret")
 
 	artifactName := "val-" + randStringRunes(5)
-	artifactChecksum, err := testServer.ArtifactFromDir("testdata/configmap", artifactName)
+	artifactChecksum, err := testServer.ArtifactFromDir(artifactDir, artifactName)
 	g.Expect(err).ToNot(HaveOccurred())
 
 	source := types.NamespacedName{
@@ -355,16 +357,17 @@ func newDependsOnFixture(t *testing.T) *dependsOnFixture {
 	}
 	g.Expect(applyGitRepository(source, artifactName, "main/"+artifactChecksum)).To(Succeed())
 
-	return &dependsOnFixture{
-		namespace: namespaceName,
-		source:    source,
-		revision:  "main/" + artifactChecksum,
+	return &sourceFixture{
+		namespace:   namespaceName,
+		source:      source,
+		revision:    "main/" + artifactChecksum,
+		artifactDir: artifactDir,
 	}
 }
 
 // newKCLRun builds a KCLRun on the fixture source. The passed callback gets a
 // chance to override the spec, e.g. to add dependencies.
-func (f *dependsOnFixture) newKCLRun(name string, kclRunSpecFn func(*v1alpha1.KCLRunSpec)) *v1alpha1.KCLRun {
+func (f *sourceFixture) newKCLRun(name string, kclRunSpecFn func(*v1alpha1.KCLRunSpec)) *v1alpha1.KCLRun {
 	obj := &v1alpha1.KCLRun{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -373,9 +376,9 @@ func (f *dependsOnFixture) newKCLRun(name string, kclRunSpecFn func(*v1alpha1.KC
 		Spec: v1alpha1.KCLRunSpec{
 			Interval: metav1.Duration{Duration: 10 * time.Minute},
 			Prune:    true,
-			Path:     "./testdata/configmap",
+			Path:     "./" + f.artifactDir,
 			// The controller does not default the namespace of an applied
-			// manifest, so the fixture reads it from here.
+			// manifest, so the fixtures read it from here.
 			Config: &v1alpha1.ConfigSpec{
 				Arguments: []string{"namespace=" + f.namespace},
 			},
@@ -399,7 +402,7 @@ func (f *dependsOnFixture) newKCLRun(name string, kclRunSpecFn func(*v1alpha1.KC
 
 // waitForReady blocks until the named KCLRun reports a successful
 // reconciliation of the fixture revision.
-func (f *dependsOnFixture) waitForReady(t *testing.T, name string) {
+func (f *sourceFixture) waitForReady(t *testing.T, name string) {
 	t.Helper()
 	g := NewWithT(t)
 	key := types.NamespacedName{Namespace: f.namespace, Name: name}
@@ -420,29 +423,29 @@ func TestKCLRunReconciler_DependsOn(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		// deps returns the dependencies to put on the subject KCLRun.
-		deps func(f *dependsOnFixture) []v1alpha1.DependencyReference
+		deps func(f *sourceFixture) []v1alpha1.DependencyReference
 	}{
 		{
 			name: "defaults to KCLRun when kind is unset",
-			deps: func(f *dependsOnFixture) []v1alpha1.DependencyReference {
+			deps: func(f *sourceFixture) []v1alpha1.DependencyReference {
 				return []v1alpha1.DependencyReference{{Name: "dep-kclrun"}}
 			},
 		},
 		{
 			name: "explicit KCLRun dependency",
-			deps: func(f *dependsOnFixture) []v1alpha1.DependencyReference {
+			deps: func(f *sourceFixture) []v1alpha1.DependencyReference {
 				return []v1alpha1.DependencyReference{{Kind: v1alpha1.KCLRunKind, Name: "dep-kclrun"}}
 			},
 		},
 		{
 			name: "Kustomization dependency",
-			deps: func(f *dependsOnFixture) []v1alpha1.DependencyReference {
+			deps: func(f *sourceFixture) []v1alpha1.DependencyReference {
 				return []v1alpha1.DependencyReference{{Kind: kustomizev1.KustomizationKind, Name: "dep-kustomization"}}
 			},
 		},
 		{
 			name: "KCLRun and Kustomization dependencies",
-			deps: func(f *dependsOnFixture) []v1alpha1.DependencyReference {
+			deps: func(f *sourceFixture) []v1alpha1.DependencyReference {
 				return []v1alpha1.DependencyReference{
 					{Kind: v1alpha1.KCLRunKind, Name: "dep-kclrun"},
 					{Kind: kustomizev1.KustomizationKind, Name: "dep-kustomization"},
@@ -452,7 +455,7 @@ func TestKCLRunReconciler_DependsOn(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			g := NewWithT(t)
-			f := newDependsOnFixture(t)
+			f := newSourceFixture(t, "testdata/configmap")
 
 			// A KCLRun dependency is reconciled by the controller under test.
 			dep := f.newKCLRun("dep-kclrun", nil)
@@ -477,7 +480,7 @@ func TestKCLRunReconciler_DependsOn(t *testing.T) {
 // ready condition keeps the subject from reconciling.
 func TestKCLRunReconciler_DependsOnNotReady(t *testing.T) {
 	g := NewWithT(t)
-	f := newDependsOnFixture(t)
+	f := newSourceFixture(t, "testdata/configmap")
 
 	// A Kustomization that has not reconciled yet: no conditions at all.
 	g.Expect(applyKustomization(types.NamespacedName{Name: "dep-kustomization", Namespace: f.namespace},
@@ -504,7 +507,7 @@ func TestKCLRunReconciler_DependsOnNotReady(t *testing.T) {
 // exist keeps the subject from reconciling.
 func TestKCLRunReconciler_DependsOnMissing(t *testing.T) {
 	g := NewWithT(t)
-	f := newDependsOnFixture(t)
+	f := newSourceFixture(t, "testdata/configmap")
 
 	subject := f.newKCLRun("subject", func(spec *v1alpha1.KCLRunSpec) {
 		spec.DependsOn = []v1alpha1.DependencyReference{
@@ -521,4 +524,99 @@ func TestKCLRunReconciler_DependsOnMissing(t *testing.T) {
 			conditions.IsFalse(&obj, meta.ReadyCondition) &&
 			conditions.GetReason(&obj, meta.ReadyCondition) == meta.DependencyNotReadyReason
 	}, timeout, time.Second).Should(BeTrue(), "KCLRun reconciled despite a missing dependency")
+}
+
+// TestKCLRunReconciler_PackageVersionPin covers spec.package.version. The
+// testdata/pkg artifact declares version 0.1.0 in its kcl.mod.
+func TestKCLRunReconciler_PackageVersionPin(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		// pin is written to spec.package.version, empty leaves it unset.
+		pin string
+		// wantStalled expects reconciliation to be held back instead of
+		// applying a package that does not satisfy the pin.
+		wantStalled bool
+	}{
+		{
+			name: "matching pin applies and is recorded",
+			pin:  "0.1.0",
+		},
+		{
+			name: "range pin applies",
+			pin:  ">=0.1.0, <0.2.0",
+		},
+		{
+			name: "no pin keeps working",
+		},
+		{
+			name:        "pin on another version stalls",
+			pin:         "0.2.0",
+			wantStalled: true,
+		},
+		{
+			// A pin that cannot be verified must not read as satisfied.
+			name:        "unparsable pin stalls",
+			pin:         "^0.1.0",
+			wantStalled: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			g := NewWithT(t)
+			f := newSourceFixture(t, "testdata/pkg")
+
+			obj := f.newKCLRun("subject", func(spec *v1alpha1.KCLRunSpec) {
+				if tc.pin != "" {
+					spec.Package = &v1alpha1.PackageSpec{Version: tc.pin}
+				}
+			})
+			g.Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+			key := types.NamespacedName{Namespace: obj.Namespace, Name: obj.Name}
+
+			if tc.wantStalled {
+				g.Eventually(func() bool {
+					var got v1alpha1.KCLRun
+					err := k8sClient.Get(ctx, key, &got)
+					return err == nil &&
+						conditions.IsStalled(&got) &&
+						conditions.GetReason(&got, meta.ReadyCondition) == v1alpha1.PackageVersionNotSatisfiedReason
+				}, timeout, time.Second).Should(BeTrue(), "KCLRun applied a package violating the pin")
+
+				// Nothing must have been recorded as applied.
+				var got v1alpha1.KCLRun
+				g.Expect(k8sClient.Get(ctx, key, &got)).To(Succeed())
+				g.Expect(got.Status.LastAppliedPackageVersion).To(BeEmpty())
+				return
+			}
+
+			f.waitForReady(t, "subject")
+
+			var got v1alpha1.KCLRun
+			g.Expect(k8sClient.Get(ctx, key, &got)).To(Succeed())
+			if tc.pin == "" {
+				g.Expect(got.Status.LastAppliedPackageVersion).To(BeEmpty())
+			} else {
+				g.Expect(got.Status.LastAppliedPackageVersion).To(Equal("0.1.0"))
+			}
+		})
+	}
+}
+
+// TestKCLRunReconciler_PackageVersionPinRequiresMod asserts that a pin against a
+// package without a kcl.mod stalls instead of silently applying it.
+func TestKCLRunReconciler_PackageVersionPinRequiresMod(t *testing.T) {
+	g := NewWithT(t)
+	f := newSourceFixture(t, "testdata/configmap")
+
+	obj := f.newKCLRun("subject", func(spec *v1alpha1.KCLRunSpec) {
+		spec.Package = &v1alpha1.PackageSpec{Version: "0.1.0"}
+	})
+	g.Expect(k8sClient.Create(ctx, obj)).To(Succeed())
+
+	key := types.NamespacedName{Namespace: obj.Namespace, Name: obj.Name}
+	g.Eventually(func() bool {
+		var got v1alpha1.KCLRun
+		err := k8sClient.Get(ctx, key, &got)
+		return err == nil && conditions.IsStalled(&got)
+	}, timeout, time.Second).Should(BeTrue(), "KCLRun applied a package it could not verify")
 }

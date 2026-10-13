@@ -306,6 +306,22 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res
 		conditions.MarkFalse(obj, meta.ReadyCondition, meta.ArtifactFailedReason, "%s", err)
 		return ctrl.Result{}, err
 	}
+	// Honour the package version pin before compiling anything, so a revision
+	// carrying the wrong package never reaches the cluster.
+	pkgVersion, err := r.checkPackageVersion(obj, dirPath)
+	if err != nil {
+		// Stalled rather than retried: no amount of requeueing makes the
+		// artifact satisfy the constraint, only a spec or source change will.
+		conditions.MarkStalled(obj, v1alpha1.PackageVersionNotSatisfiedReason, "%s", err.Error())
+		// Ready is left at Unknown/Progressing by the status report above, so
+		// say why the pin failed here instead of leaving it to be misread as
+		// work still in flight.
+		conditions.MarkFalse(obj, meta.ReadyCondition, v1alpha1.PackageVersionNotSatisfiedReason, "%s", err.Error())
+		msg := fmt.Sprintf("KCL package version pin not satisfied, stalling: %s", err)
+		log.Error(err, msg)
+		r.event(obj, artifact.Revision, eventv1.EventSeverityError, msg, nil)
+		return ctrl.Result{}, err
+	}
 	vars := make(map[string]string)
 	for _, reference := range obj.Spec.ArgumentsReferences {
 		namespacedName := types.NamespacedName{Namespace: obj.GetNamespace(), Name: reference.Name}
@@ -454,6 +470,10 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res
 	// Set last applied revision.
 	obj.Status.LastAppliedRevision = artifact.Revision
 
+	// Record the package version that produced these manifests. Empty when the
+	// package is not pinned.
+	obj.Status.LastAppliedPackageVersion = pkgVersion
+
 	// Mark the object as ready.
 	conditions.MarkTrue(
 		obj,
@@ -465,6 +485,16 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res
 
 	// Requeue the reconciliation at the specified interval.
 	return ctrl.Result{RequeueAfter: jitter.JitteredIntervalDuration(obj.GetRequeueAfter())}, nil
+}
+
+// checkPackageVersion returns the version of the KCL package at pkgPath when
+// spec.package.version pins it, and an empty string when no pin is set. An
+// error means the pin cannot be honoured for this revision.
+func (r *KCLRunReconciler) checkPackageVersion(obj *v1alpha1.KCLRun, pkgPath string) (string, error) {
+	if obj.Spec.Package == nil || obj.Spec.Package.Version == "" {
+		return "", nil
+	}
+	return kcl.CheckPackageVersion(pkgPath, obj.Spec.Package.Version)
 }
 
 // checkDependencies reports whether every object in spec.dependsOn is ready

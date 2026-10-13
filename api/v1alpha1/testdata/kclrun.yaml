@@ -24,6 +24,8 @@ spec:
   interval: "5m"
   retryInterval: "1m"
   path: /path/to/kcl_mod_file_path
+  package:
+    version: "0.1.0"
   config:
     arguments:
       - env="prod"
