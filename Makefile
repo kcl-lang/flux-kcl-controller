@@ -111,14 +111,20 @@ manifests: controller-gen deepcopy-gen
 	$(DEEPCOPY_GEN) --input-dirs=$(INPUT_DIRS) --output-file-base=zz_generated.deepcopy --go-header-file=${BOILERPLATE_PATH}
 	$(MAKE) helm-chart-crds
 
-# Copy the generated CRD into the Helm chart. Helm only installs files under a
+# Copy the generated CRDs into the Helm chart. Helm only installs files under a
 # chart's crds/ directory on `helm install` and never touches them on upgrade or
 # uninstall, which is the behaviour a CRD wants, so the chart cannot template it.
+#
+# The ImagePolicy CRD goes in alongside the KCLRun one because the controller
+# watches that kind as soon as it starts. A cluster without the CRD does not
+# merely lose the feature: source.Kind cannot map the kind, the manager fails to
+# start, and the controller crash-loops with none of its features working.
 CHART_DIR := charts/flux-kcl-controller
 .PHONY: helm-chart-crds
 helm-chart-crds:
 	mkdir -p $(CHART_DIR)/crds
 	cp $(KCLRUN_CRD) $(CHART_DIR)/crds/
+	cp $(IMAGEPOLICY_CRD) $(CHART_DIR)/crds/
 
 # Run go tidy to cleanup go.mod
 tidy:
