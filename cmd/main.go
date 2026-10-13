@@ -28,19 +28,15 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	"github.com/fluxcd/cli-utils/pkg/kstatus/polling"
-	"github.com/fluxcd/cli-utils/pkg/kstatus/polling/engine"
 	"github.com/fluxcd/pkg/runtime/client"
 	"github.com/fluxcd/pkg/runtime/events"
 	"github.com/fluxcd/pkg/runtime/logger"
 	"github.com/fluxcd/pkg/runtime/metrics"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
-	sourcev1beta2 "github.com/fluxcd/source-controller/api/v1beta2"
 
 	helper "github.com/fluxcd/pkg/runtime/controller"
 	krmkcldevfluxcdv1alpha1 "github.com/kcl-lang/flux-kcl-controller/api/v1alpha1"
 	"github.com/kcl-lang/flux-kcl-controller/internal/controller"
-	"github.com/kcl-lang/flux-kcl-controller/internal/statusreaders"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -56,7 +52,6 @@ func init() {
 	// GitRepository
 	utilruntime.Must(sourcev1.AddToScheme(scheme))
 	// OCIRepository
-	utilruntime.Must(sourcev1beta2.AddToScheme(scheme))
 	// KCLRun
 	utilruntime.Must(krmkcldevfluxcdv1alpha1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
@@ -113,15 +108,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	var eventRecorder *events.Recorder
-	if eventRecorder, err = events.NewRecorder(mgr, ctrl.Log, eventsAddr, controllerName); err != nil {
+	var eventRecorder events.Recorder
+	if eventRecorder, err = events.NewRecorder(ctrl.Log, eventsAddr, controllerName,
+		events.WithManager(mgr),
+		events.WithScheme(scheme),
+	); err != nil {
 		setupLog.Error(err, "unable to create event recorder")
 		os.Exit(1)
-	}
-
-	jobStatusReader := statusreaders.NewCustomJobStatusReader(mgr.GetRESTMapper())
-	pollingOpts := polling.Options{
-		CustomStatusReaders: []engine.StatusReader{jobStatusReader},
 	}
 
 	if err = (&controller.KCLRunReconciler{
@@ -129,12 +122,10 @@ func main() {
 		DefaultServiceAccount:   defaultServiceAccount,
 		Client:                  mgr.GetClient(),
 		Metrics:                 helper.NewMetrics(mgr, metrics.MustMakeRecorder(), krmkcldevfluxcdv1alpha1.KCLRunFinalizer),
-		EventRecorder:           eventRecorder,
+		Recorder:                eventRecorder,
 		GetClusterConfig:        ctrl.GetConfig,
 		ClientOpts:              clientOptions,
 		KubeConfigOpts:          kubeConfigOpts,
-		PollingOpts:             pollingOpts,
-		StatusPoller:            polling.NewStatusPoller(mgr.GetClient(), mgr.GetRESTMapper(), pollingOpts),
 		DisallowedFieldManagers: disallowedFieldManagers,
 	}).SetupWithManager(ctx, mgr, controller.KCLRunReconcilerOptions{
 		DependencyRequeueInterval: requeueDependency,

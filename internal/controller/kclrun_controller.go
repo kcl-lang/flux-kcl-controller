@@ -39,7 +39,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	securejoin "github.com/cyphar/filepath-securejoin"
-	"github.com/fluxcd/cli-utils/pkg/kstatus/polling"
 	"github.com/fluxcd/cli-utils/pkg/object"
 	apiacl "github.com/fluxcd/pkg/apis/acl"
 	eventv1 "github.com/fluxcd/pkg/apis/event/v1beta1"
@@ -48,6 +47,7 @@ import (
 	"github.com/fluxcd/pkg/runtime/acl"
 	runtimeClient "github.com/fluxcd/pkg/runtime/client"
 	"github.com/fluxcd/pkg/runtime/conditions"
+	"github.com/fluxcd/pkg/runtime/events"
 	"github.com/fluxcd/pkg/runtime/jitter"
 	"github.com/fluxcd/pkg/runtime/patch"
 	"github.com/fluxcd/pkg/runtime/predicates"
@@ -58,13 +58,12 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kerrors "k8s.io/apimachinery/pkg/util/errors"
-	kuberecorder "k8s.io/client-go/tools/record"
 
 	helper "github.com/fluxcd/pkg/runtime/controller"
 	"github.com/fluxcd/pkg/ssa"
 	"github.com/fluxcd/pkg/ssa/normalize"
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
-	sourcev1beta2 "github.com/fluxcd/source-controller/api/v1beta2"
+
 	"github.com/kcl-lang/flux-kcl-controller/api/v1alpha1"
 	"github.com/kcl-lang/flux-kcl-controller/internal/inventory"
 	"github.com/kcl-lang/flux-kcl-controller/internal/kcl"
@@ -75,12 +74,10 @@ import (
 // KCLRunReconciler reconciles a KCLRun object
 type KCLRunReconciler struct {
 	client.Client
-	kuberecorder.EventRecorder
+	events.Recorder
 	helper.Metrics
 
 	ControllerName   string
-	StatusPoller     *polling.StatusPoller
-	PollingOpts      polling.Options
 	GetClusterConfig func() (*rest.Config, error)
 	ClientOpts       runtimeClient.Options
 	KubeConfigOpts   runtimeClient.KubeConfigOptions
@@ -108,7 +105,7 @@ func (r *KCLRunReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manage
 
 	// Index the KCLRun by the OCIRepository references they (may) point at.
 	if err := mgr.GetCache().IndexField(ctx, &v1alpha1.KCLRun{}, ociRepositoryIndexKey,
-		r.indexBy(sourcev1beta2.OCIRepositoryKind)); err != nil {
+		r.indexBy(sourcev1.OCIRepositoryKind)); err != nil {
 		return fmt.Errorf("failed setting index fields: %w", err)
 	}
 
@@ -138,7 +135,7 @@ func (r *KCLRunReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manage
 			builder.WithPredicates(sw.GitRepositoryRevisionChangePredicate{}),
 		).
 		Watches(
-			&sourcev1beta2.OCIRepository{},
+			&sourcev1.OCIRepository{},
 			handler.EnqueueRequestsFromMapFunc(r.requestsForOCIRepositoryChange),
 			builder.WithPredicates(intpredicates.SourceRevisionChangePredicate{}),
 		).
@@ -348,13 +345,9 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res
 	// Configure the Kubernetes client for impersonation.
 	impersonation := runtimeClient.NewImpersonator(
 		r.Client,
-		r.StatusPoller,
-		r.PollingOpts,
-		obj.Spec.KubeConfig,
-		r.KubeConfigOpts,
-		r.DefaultServiceAccount,
-		obj.Spec.ServiceAccountName,
-		obj.GetNamespace(),
+		runtimeClient.WithScheme(r.Client.Scheme()),
+		runtimeClient.WithKubeConfig(obj.Spec.KubeConfig, r.KubeConfigOpts, obj.GetNamespace(), nil),
+		runtimeClient.WithServiceAccount(r.DefaultServiceAccount, obj.Spec.ServiceAccountName, obj.GetNamespace()),
 	)
 	// Create the Kubernetes client that runs under impersonation.
 	kubeClient, statusPoller, err := impersonation.GetClient(ctx)
@@ -512,8 +505,8 @@ func (r *KCLRunReconciler) getSource(ctx context.Context,
 			return src, fmt.Errorf("unable to get source '%s': %w", namespacedName, err)
 		}
 		src = &repository
-	case sourcev1beta2.OCIRepositoryKind:
-		var repository sourcev1beta2.OCIRepository
+	case sourcev1.OCIRepositoryKind:
+		var repository sourcev1.OCIRepository
 		err := r.Client.Get(ctx, namespacedName, &repository)
 		if err != nil {
 			if apierrors.IsNotFound(err) {
@@ -577,7 +570,7 @@ func (r *KCLRunReconciler) requestsForRevisionChangeOf() handler.MapFunc {
 }
 
 func (r *KCLRunReconciler) requestsForOCIRepositoryChange(ctx context.Context, o client.Object) []reconcile.Request {
-	or, ok := o.(*sourcev1beta2.OCIRepository)
+	or, ok := o.(*sourcev1.OCIRepository)
 	if !ok {
 		err := fmt.Errorf("expected an OCIRepository, got %T", o)
 		ctrl.LoggerFrom(ctx).Error(err, "failed to get requests for OCIRepository change")
@@ -735,13 +728,9 @@ func (r *KCLRunReconciler) finalize(ctx context.Context,
 
 		impersonation := runtimeClient.NewImpersonator(
 			r.Client,
-			r.StatusPoller,
-			r.PollingOpts,
-			obj.Spec.KubeConfig,
-			r.KubeConfigOpts,
-			r.DefaultServiceAccount,
-			obj.Spec.ServiceAccountName,
-			obj.GetNamespace(),
+			runtimeClient.WithScheme(r.Client.Scheme()),
+			runtimeClient.WithKubeConfig(obj.Spec.KubeConfig, r.KubeConfigOpts, obj.GetNamespace(), nil),
+			runtimeClient.WithServiceAccount(r.DefaultServiceAccount, obj.Spec.ServiceAccountName, obj.GetNamespace()),
 		)
 		if impersonation.CanImpersonate(ctx) {
 			kubeClient, _, err := impersonation.GetClient(ctx)
@@ -807,7 +796,7 @@ func (r *KCLRunReconciler) event(obj *v1alpha1.KCLRun,
 		eventtype = "Warning"
 	}
 
-	r.EventRecorder.AnnotatedEventf(obj, metadata, eventtype, reason, msg)
+	r.Recorder.AnnotatedEventf(obj, nil, metadata, eventtype, reason, "Reconcile", "%s", msg)
 }
 
 func (r *KCLRunReconciler) apply(ctx context.Context,
