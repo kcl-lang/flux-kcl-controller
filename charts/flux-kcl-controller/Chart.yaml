@@ -6,10 +6,15 @@ type: application
 # builds and pushes the image. appVersion must be the controller image tag
 # exactly as it is published, which carries a leading "v" (see the tag handling
 # in .github/workflows/release.yaml); values.yaml leaves image.tag empty so the
-# image reference falls back to this. A bare "0.12.0" here would resolve to a
+# image reference falls back to this. A bare "0.12.1" here would resolve to a
 # tag the registry has never had.
-version: 0.1.0
-appVersion: "v0.12.0"
+#
+# version tracks the chart itself and moves when the chart's contents move.
+# 0.1.1 is the chart as v0.12.1 ships it; 0.1.0 went out with v0.12.0 and did
+# not carry the ImagePolicy CRD, so installing it produced a controller that
+# could not start.
+version: 0.1.1
+appVersion: "v0.12.1"
 kubeVersion: ">=1.28.0-0"
 home: https://github.com/kcl-lang/flux-kcl-controller
 sources:
