@@ -3,6 +3,7 @@ IMG ?= ghcr.io/kcl-lang/flux-kcl-controller:v0.1.0
 # Produce CRDs that work back to Kubernetes 1.16
 CRD_OPTIONS ?= crd:crdVersions=v1
 SOURCE_VER ?= $(shell go list -m all | grep github.com/fluxcd/source-controller/api | awk '{print $$2}')
+IMAGE_REFLECTOR_VER ?= $(shell go list -m all | grep github.com/fluxcd/image-reflector-controller/api | awk '{print $$2}')
 
 # Use the same version of SOPS already referenced on go.mod
 SOPS_VER := $(shell go list -m all | grep github.com/getsops/sops | awk '{print $$2}')
@@ -28,10 +29,11 @@ BUCKET_CRD ?= config/crd/bases/buckets.yaml
 OCIREPO_CRD ?= config/crd/bases/ocirepositories.yaml
 # The CRD the controller itself defines, and the copy the Helm chart ships.
 KCLRUN_CRD ?= config/crd/bases/krm.kcl.dev.fluxcd_kclruns.yaml
+IMAGEPOLICY_CRD ?= config/crd/bases/imagepolicies.yaml
 
 # Keep a record of the version of the downloaded source CRDs. It is used to
 # detect and download new CRDs when the SOURCE_VER changes.
-SOURCE_CRD_VER=bin/.src-crd-$(SOURCE_VER)
+SOURCE_CRD_VER=bin/.src-crd-$(SOURCE_VER)-$(IMAGE_REFLECTOR_VER)
 
 PACKAGE ?= github.com/kcl-lang/flux-kcl-controller
 INPUT_DIRS := $(PACKAGE)/api/v1alpha1
@@ -63,15 +65,17 @@ $(SOURCE_CRD_VER):
 	if ! test -d "bin"; then mkdir -p bin; fi
 	touch $(SOURCE_CRD_VER)
 
-# Download the CRDs the controller depends on FluxCD GitRepo, OCIRepo and Bucket.
+# Download the CRDs the controller depends on FluxCD GitRepo, OCIRepo, Bucket
+# and ImagePolicy.
 download-crd-deps: $(SOURCE_CRD_VER)
 	curl -s https://raw.githubusercontent.com/fluxcd/source-controller/${SOURCE_VER}/config/crd/bases/source.toolkit.fluxcd.io_gitrepositories.yaml -o $(GITREPO_CRD)
 	curl -s https://raw.githubusercontent.com/fluxcd/source-controller/${SOURCE_VER}/config/crd/bases/source.toolkit.fluxcd.io_buckets.yaml -o $(BUCKET_CRD)
 	curl -s https://raw.githubusercontent.com/fluxcd/source-controller/${SOURCE_VER}/config/crd/bases/source.toolkit.fluxcd.io_ocirepositories.yaml -o $(OCIREPO_CRD)
+	curl -s https://raw.githubusercontent.com/fluxcd/image-reflector-controller/${IMAGE_REFLECTOR_VER}/config/crd/bases/image.toolkit.fluxcd.io_imagepolicies.yaml -o $(IMAGEPOLICY_CRD)
 
 # Delete the downloaded CRD dependencies.
 cleanup-crd-deps:
-	rm -f $(GITREPO_CRD) $(BUCKET_CRD) $(OCIREPO_CRD)
+	rm -f $(GITREPO_CRD) $(BUCKET_CRD) $(OCIREPO_CRD) $(IMAGEPOLICY_CRD)
 
 # Install CRDs into a cluster
 install: manifests

@@ -10,6 +10,7 @@ replace github.com/opencontainers/go-digest => github.com/opencontainers/go-dige
 
 require (
 	github.com/fluxcd/cli-utils v1.3.0
+	github.com/fluxcd/image-reflector-controller/api v1.2.5
 	github.com/fluxcd/pkg/apis/acl v0.11.0
 	github.com/fluxcd/pkg/apis/event v0.30.0
 	github.com/fluxcd/pkg/http/fetch v0.26.0

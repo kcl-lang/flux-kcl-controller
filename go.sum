@@ -182,6 +182,8 @@ github.com/felixge/httpsnoop v1.1.0 h1:3YtUj32ZZkqZtt3sZZsClsymw/QDuVfpNhoA31zeO
 github.com/felixge/httpsnoop v1.1.0/go.mod h1:Zqxgdd+1Rkcz8euOqdr7lqgCRJztwr5hp9vDSi5UZCE=
 github.com/fluxcd/cli-utils v1.3.0 h1:doEjNgeNb4klO/1mNgU9bkeou5zH/YpHBQqZ7HTBgkc=
 github.com/fluxcd/cli-utils v1.3.0/go.mod h1:qW5YGrml58qvAv+fBqp9Vp4xGkkIc6h6eJLd77eqFoM=
+github.com/fluxcd/image-reflector-controller/api v1.2.5 h1:3lUBpBuefeO1UtVmGnvJOP5iSI2B2Lm6+CnPRdb8F54=
+github.com/fluxcd/image-reflector-controller/api v1.2.5/go.mod h1:90RGazjs5cq7Ivbc3J8c/ZLJHb+k3Z+7KbXwTsMf5SE=
 github.com/fluxcd/pkg/apis/acl v0.11.0 h1:BxThatpA6qd5Qzwim6/hRu0gdAX0JxNm3PledDuJqXo=
 github.com/fluxcd/pkg/apis/acl v0.11.0/go.mod h1:a87i2A7AlFO5N2J8CxtzaUCCDmuLLWOHwkKu3eJF5fY=
 github.com/fluxcd/pkg/apis/event v0.30.0 h1:OX//v3zcR7MJjSGW01UQFiKPFJ80abjFddDYvAACdVM=

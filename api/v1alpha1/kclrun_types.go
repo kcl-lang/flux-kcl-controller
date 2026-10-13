@@ -32,6 +32,18 @@ const (
 	MergeValue                = "Merge"
 	IfNotPresentValue         = "IfNotPresent"
 	IgnoreValue               = "Ignore"
+
+	// ImagePolicyNotReadyReason marks a KCLRun whose sources name an ImagePolicy
+	// that does not exist yet or has not reported an image. The reconciliation is
+	// retried, because the policy may still be created, or the reflector may still
+	// be scanning the registry.
+	ImagePolicyNotReadyReason = "ImagePolicyNotReady"
+	// ImagePolicyFailedReason marks a KCLRun stalled because a marker cannot be
+	// honoured under any circumstances: it is malformed, annotates no image, or
+	// names a policy that resolves to a different repository. Requeueing cannot
+	// change the answer, so the KCLRun is held rather than applied with the
+	// images the author wrote.
+	ImagePolicyFailedReason = "ImagePolicyFailed"
 )
 
 // KCLRunSpec defines the desired state of KCLRun
