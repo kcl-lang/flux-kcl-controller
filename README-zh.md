@@ -15,6 +15,38 @@ flux-kcl-controller 是一个组件，用于集成 [KCL](https://github.com/kcl-
 
 - 定期监控存储 KCL 程序的 git/oci 仓库，并根据 git 仓库中的变化，调谐 k8s 集群状态。
 
+# 安装
+
+控制器依赖 [Flux](https://github.com/fluxcd/flux2)，因为它需要依据 Flux 的 source CRD
+（`GitRepository`、`OCIRepository`、`Bucket`）和 `Kustomization` 来调谐 KCLRun 对象。
+
+## 使用 Flux（GitOps）
+
+`install/rc.yaml` 是一个 `GitRepository` 和一个指向本仓库中 chart 的 `HelmRelease`，
+因此不需要先把 chart 发布到任何 chart 仓库：
+
+```shell
+kubectl apply -f https://raw.githubusercontent.com/kcl-lang/flux-kcl-controller/main/install/rc.yaml
+```
+
+默认跟踪 `main` 分支。如果希望跟随某个发行版本，请将 `spec.chart.spec.ref` 固定到对应的 tag。
+
+## 使用 Helm
+
+```shell
+helm install flux-kcl-controller ./charts/flux-kcl-controller \
+  --namespace flux-system --create-namespace
+```
+
+## 使用 kustomize
+
+```shell
+kustomize build config/default | kubectl apply -f -
+```
+
+chart 支持的配置项见
+[charts/flux-kcl-controller/README.md](./charts/flux-kcl-controller/README.md)。
+
 # 快速开始
 
 # 先决条件

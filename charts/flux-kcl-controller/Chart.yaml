@@ -1,0 +1,21 @@
+apiVersion: v2
+name: flux-kcl-controller
+description: A Flux reconciler for KCL packages, rendering them into Kubernetes manifests.
+type: application
+# The chart version is bumped by the release workflow; appVersion tracks the
+# controller image tag.
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.28.0-0"
+home: https://github.com/kcl-lang/flux-kcl-controller
+sources:
+  - https://github.com/kcl-lang/flux-kcl-controller
+keywords:
+  - flux
+  - fluxcd
+  - kcl
+  - gitops
+  - krm
+maintainers:
+  - name: The KCL authors
+    url: https://github.com/kcl-lang/flux-kcl-controller

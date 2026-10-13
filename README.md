@@ -16,6 +16,40 @@ The `flux-kcl-controller` is a component developed for the integration of [KCL](
 
 - Periodically monitor git repositories that store KCL programs and reconcile k8s cluster status according to changes in git repositories.
 
+# Installation
+
+The controller requires [Flux](https://github.com/fluxcd/flux2) to be installed
+first, because it reconciles KCLRun objects against the Flux source CRDs
+(`GitRepository`, `OCIRepository`, `Bucket`) and `Kustomization`.
+
+## With Flux (GitOps)
+
+`install/rc.yaml` is a `GitRepository` and a `HelmRelease` pointing at the chart
+in this repository, so nothing has to be published to a chart registry first:
+
+```shell
+kubectl apply -f https://raw.githubusercontent.com/kcl-lang/flux-kcl-controller/main/install/rc.yaml
+```
+
+It tracks `main` by default. Pin `spec.chart.spec.ref` to a tag if you would
+rather follow a release.
+
+## With Helm
+
+```shell
+helm install flux-kcl-controller ./charts/flux-kcl-controller \
+  --namespace flux-system --create-namespace
+```
+
+## With kustomize
+
+```shell
+kustomize build config/default | kubectl apply -f -
+```
+
+See [charts/flux-kcl-controller/README.md](./charts/flux-kcl-controller/README.md)
+for the values the chart accepts.
+
 # Quick Start
 
 ## Prerequisites

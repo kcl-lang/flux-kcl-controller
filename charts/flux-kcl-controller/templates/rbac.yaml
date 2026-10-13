@@ -1,0 +1,149 @@
+{{- if .Values.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "flux-kcl-controller.fullname" . }}
+  labels:
+    {{- include "flux-kcl-controller.labels" . | nindent 4 }}
+rules:
+  # KCLRun objects and their status.
+  - apiGroups:
+      - krm.kcl.dev.fluxcd
+    resources:
+      - kclruns
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - update
+      - patch
+      - delete
+  - apiGroups:
+      - krm.kcl.dev.fluxcd
+    resources:
+      - kclruns/status
+    verbs:
+      - get
+      - update
+      - patch
+  - apiGroups:
+      - krm.kcl.dev.fluxcd
+    resources:
+      - kclruns/finalizers
+    verbs:
+      - update
+  # Sources a KCLRun may reference.
+  - apiGroups:
+      - source.toolkit.fluxcd.io
+    resources:
+      - buckets
+      - gitrepositories
+      - ocirepositories
+    verbs:
+      - get
+      - list
+      - watch
+  # Sources are patched to record the artifacts this controller downloads.
+  - apiGroups:
+      - source.toolkit.fluxcd.io
+    resources:
+      - buckets/status
+      - gitrepositories/status
+      - ocirepositories/status
+    verbs:
+      - patch
+  # Kustomizations are supported as KCLRun dependencies.
+  - apiGroups:
+      - kustomize.toolkit.fluxcd.io
+    resources:
+      - kustomizations
+    verbs:
+      - get
+  # Secrets and ConfigMaps back KCLRun.spec.kubeConfig,
+  # KCLRun.spec.serviceAccountName and KCLRun.spec.argumentsReferences.
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+      - configmaps
+    verbs:
+      - get
+      - list
+      - watch
+  # Service accounts are impersonated when applying manifests.
+  - apiGroups:
+      - ""
+    resources:
+      - serviceaccounts
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - serviceaccounts/token
+    verbs:
+      - create
+  # Event recording.
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - create
+      - patch
+  # Health checks and status polling for the applied objects.
+  - apiGroups:
+      - apiextensions.k8s.io
+    resources:
+      - customresourcedefinitions
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - apiregistration.k8s.io
+    resources:
+      - apiservices
+    verbs:
+      - get
+      - list
+      - watch
+  {{- with .Values.rbac.extraRules }}
+  {{- toYaml . | nindent 2 }}
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "flux-kcl-controller.fullname" . }}
+  labels:
+    {{- include "flux-kcl-controller.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "flux-kcl-controller.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "flux-kcl-controller.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- if .Values.rbac.clusterAdminBinding.create }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "flux-kcl-controller.fullname" . }}-cluster-admin
+  labels:
+    {{- include "flux-kcl-controller.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "flux-kcl-controller.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- end }}

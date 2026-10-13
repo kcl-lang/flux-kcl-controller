@@ -1,0 +1,145 @@
+{{- include "flux-kcl-controller.validateValues" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "flux-kcl-controller.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flux-kcl-controller.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "flux-kcl-controller.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "flux-kcl-controller.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        {{- with (include "flux-kcl-controller.metricsPort" .) }}
+        {{- with $.Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        {{- else }}
+        prometheus.io/scrape: "false"
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "flux-kcl-controller.serviceAccountName" . }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: manager
+          image: {{ include "flux-kcl-controller.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with (include "flux-kcl-controller.metricsPort" .) }}
+          ports:
+            - containerPort: {{ . }}
+              name: http-prom
+              protocol: TCP
+          {{- end }}
+          env:
+            - name: RUNTIME_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          args:
+            {{- with .Values.logLevel }}
+            - --log-level={{ . }}
+            {{- end }}
+            {{- with .Values.logEncoding }}
+            - --log-encoding={{ . }}
+            {{- end }}
+            {{- if .Values.leaderElection.enabled }}
+            - --enable-leader-election
+            {{- end }}
+            - --metrics-addr={{ .Values.service.metrics.bindAddress }}
+            {{- with .Values.service.events.addr }}
+            - --events-addr={{ . }}
+            {{- end }}
+            - --watch-all-namespaces={{ .Values.watch.allNamespaces }}
+            {{- with .Values.watch.labelSelector }}
+            - --watch-label-selector={{ . }}
+            {{- end }}
+            {{- with .Values.watch.configsLabelSelector }}
+            - --watch-configs-label-selector={{ . }}
+            {{- end }}
+            {{- with .Values.defaultServiceAccount }}
+            - --default-service-account={{ . }}
+            {{- end }}
+            - --requeue-dependency={{ .Values.requeueDependency }}
+            - --http-retry={{ .Values.httpRetry }}
+            - --min-retry-delay={{ .Values.minRetryDelay }}
+            - --max-retry-delay={{ .Values.maxRetryDelay }}
+            - --kube-api-qps={{ .Values.kubeApi.qps }}
+            - --kube-api-burst={{ .Values.kubeApi.burst }}
+            {{- if .Values.insecureKubeconfig.exec }}
+            - --insecure-kubeconfig-exec
+            {{- end }}
+            {{- if .Values.insecureKubeconfig.tls }}
+            - --insecure-kubeconfig-tls
+            {{- end }}
+            {{- range .Values.overrideManagers }}
+            - --override-manager={{ . }}
+            {{- end }}
+            {{- range .Values.extraFlags }}
+            - --{{ .name }}={{ .value }}
+            {{- end }}
+            {{- with .Values.extraArgs }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with (include "flux-kcl-controller.metricsPort" .) }}
+          livenessProbe:
+            httpGet:
+              port: http-prom
+              path: /metrics
+          readinessProbe:
+            httpGet:
+              port: http-prom
+              path: /metrics
+          {{- end }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            {{- with .Values.tmpVolume.sizeLimit }}
+            sizeLimit: {{ . }}
+            {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
