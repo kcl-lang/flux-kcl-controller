@@ -44,6 +44,9 @@ const (
 	// change the answer, so the KCLRun is held rather than applied with the
 	// images the author wrote.
 	ImagePolicyFailedReason = "ImagePolicyFailed"
+	// PackageVersionNotSatisfiedReason marks a KCLRun stalled because the KCL
+	// package in the artifact does not satisfy spec.package.version.
+	PackageVersionNotSatisfiedReason = "PackageVersionNotSatisfied"
 )
 
 // KCLRunSpec defines the desired state of KCLRun
@@ -131,6 +134,13 @@ type KCLRunSpec struct {
 	// +optional
 	Path string `json:"path,omitempty" yaml:"path,omitempty"`
 
+	// Package pins the KCL package this KCLRun compiles. When set, the
+	// controller refuses to apply a revision whose package does not satisfy
+	// the pin, so a KCLRun never silently renders a version other than the
+	// one asked for.
+	// +optional
+	Package *PackageSpec `json:"package,omitempty" yaml:"package,omitempty"`
+
 	// Config is the KCL compile config.
 	// +optional
 	Config *ConfigSpec `json:"config,omitempty" yaml:"config,omitempty"`
@@ -172,6 +182,27 @@ type CommonMetadata struct {
 	// Labels to be added to the object's metadata.
 	// +optional
 	Labels map[string]string `json:"labels,omitempty"`
+}
+
+// PackageSpec pins the version of the KCL package compiled by a KCLRun.
+type PackageSpec struct {
+	// Version constrains the version the KCL package at `spec.path` must
+	// declare in its `kcl.mod` for this KCLRun to reconcile. The version is
+	// read from the `[package] version` key of the `kcl.mod` found in the
+	// artifact at `spec.path`.
+	//
+	// A bare version such as `0.1.0` requires that exact version. Ranges are
+	// expressed as a comma-separated list of comparisons, using the `=`,
+	// `!=`, `>`, `>=`, `<`, `<=` and `~>` operators, e.g. `>=0.1.0, <0.2.0`.
+	// The `^` and `~` shorthands and `x` wildcards are not supported.
+	//
+	// When set, the package must carry a `kcl.mod`. Reconciliation stalls
+	// rather than applying an unverified package if the constraint does not
+	// hold, which makes pinning a package version — and rolling back to a
+	// previous one — deterministic.
+	//
+	// +optional
+	Version string `json:"version,omitempty" yaml:"version,omitempty"`
 }
 
 // ConfigSpec defines the compile config.
@@ -237,6 +268,11 @@ type KCLRunStatus struct {
 	// Equals the Revision of the applied Artifact from the referenced Source.
 	// +optional
 	LastAppliedRevision string `json:"lastAppliedRevision,omitempty" yaml:"lastAppliedRevision,omitempty"`
+
+	// The version of the KCL package that was last successfully applied.
+	// Only set when spec.package.version pins the package version.
+	// +optional
+	LastAppliedPackageVersion string `json:"lastAppliedPackageVersion,omitempty" yaml:"lastAppliedPackageVersion,omitempty"`
 
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file

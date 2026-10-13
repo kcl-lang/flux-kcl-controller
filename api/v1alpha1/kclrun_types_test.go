@@ -37,6 +37,8 @@ func TestKCLRunDeserialize(t *testing.T) {
 	assert.False(t, kclRun.Spec.Force)
 	assert.NotNil(t, kclRun.Spec.RetryInterval)
 	assert.Equal(t, "/path/to/kcl_mod_file_path", kclRun.Spec.Path)
+	assert.NotNil(t, kclRun.Spec.Package)
+	assert.Equal(t, "0.1.0", kclRun.Spec.Package.Version)
 	assert.NotNil(t, kclRun.Spec.Config)
 	assert.Contains(t, kclRun.Spec.Config.Arguments, "env=\"prod\"")
 	assert.NotNil(t, kclRun.Spec.ArgumentsReferences)

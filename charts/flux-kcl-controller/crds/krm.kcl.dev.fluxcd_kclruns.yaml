@@ -282,6 +282,31 @@ spec:
                 - message: exactly one of spec.kubeConfig.configMapRef or spec.kubeConfig.secretRef
                     must be specified
                   rule: '!has(self.configMapRef) || !has(self.secretRef)'
+              package:
+                description: |-
+                  Package pins the KCL package this KCLRun compiles. When set, the
+                  controller refuses to apply a revision whose package does not satisfy
+                  the pin, so a KCLRun never silently renders a version other than the
+                  one asked for.
+                properties:
+                  version:
+                    description: |-
+                      Version constrains the version the KCL package at `spec.path` must
+                      declare in its `kcl.mod` for this KCLRun to reconcile. The version is
+                      read from the `[package] version` key of the `kcl.mod` found in the
+                      artifact at `spec.path`.
+
+                      A bare version such as `0.1.0` requires that exact version. Ranges are
+                      expressed as a comma-separated list of comparisons, using the `=`,
+                      `!=`, `>`, `>=`, `<`, `<=` and `~>` operators, e.g. `>=0.1.0, <0.2.0`.
+                      The `^` and `~` shorthands and `x` wildcards are not supported.
+
+                      When set, the package must carry a `kcl.mod`. Reconciliation stalls
+                      rather than applying an unverified package if the constraint does not
+                      hold, which makes pinning a package version — and rolling back to a
+                      previous one — deterministic.
+                    type: string
+                type: object
               path:
                 description: |-
                   Path to the directory containing the kcl.mod file.
@@ -455,6 +480,11 @@ spec:
                 required:
                 - entries
                 type: object
+              lastAppliedPackageVersion:
+                description: |-
+                  The version of the KCL package that was last successfully applied.
+                  Only set when spec.package.version pins the package version.
+                type: string
               lastAppliedRevision:
                 description: |-
                   The last successfully applied revision.
