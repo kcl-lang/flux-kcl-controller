@@ -135,20 +135,32 @@ spec:
                 type: object
               dependsOn:
                 description: |-
-                  DependsOn may contain a meta.NamespacedObjectReference slice
-                  with references to Kustomization resources that must be ready before this
-                  Kustomization can be reconciled.
+                  DependsOn may contain a DependencyReference slice
+                  with references to KCLRun or Kustomization resources that must be
+                  ready before this KCLRun can be reconciled.
+                  The `kind` field selects which of the two is referenced and defaults
+                  to `KCLRun` when left empty.
                 items:
                   description: |-
-                    NamespacedObjectReference contains enough information to locate the referenced Kubernetes resource object in any
-                    namespace.
+                    DependencyReference contains enough information to let you locate a typed
+                    Kubernetes resource object that must be ready before the KCLRun holding the
+                    reference can be reconciled.
                   properties:
+                    kind:
+                      description: |-
+                        Kind of the referent. Supported values are `KCLRun` and `Kustomization`.
+                        Defaults to `KCLRun`.
+                      enum:
+                      - KCLRun
+                      - Kustomization
+                      type: string
                     name:
                       description: Name of the referent.
                       type: string
                     namespace:
-                      description: Namespace of the referent, when not specified it
-                        acts as LocalObjectReference.
+                      description: |-
+                        Namespace of the referent, defaults to the namespace of the Kubernetes
+                        resource object that contains the reference.
                       type: string
                   required:
                   - name

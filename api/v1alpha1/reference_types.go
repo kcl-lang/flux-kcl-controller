@@ -46,3 +46,38 @@ func (s *CrossNamespaceSourceReference) String() string {
 	}
 	return fmt.Sprintf("%s/%s", s.Kind, s.Name)
 }
+
+// DependencyReference contains enough information to let you locate a typed
+// Kubernetes resource object that must be ready before the KCLRun holding the
+// reference can be reconciled.
+type DependencyReference struct {
+	// Kind of the referent. Supported values are `KCLRun` and `Kustomization`.
+	// Defaults to `KCLRun`.
+	// +optional
+	// +kubebuilder:validation:Enum=KCLRun;Kustomization
+	Kind string `json:"kind,omitempty"`
+
+	// Name of the referent.
+	// +required
+	Name string `json:"name"`
+
+	// Namespace of the referent, defaults to the namespace of the Kubernetes
+	// resource object that contains the reference.
+	// +optional
+	Namespace string `json:"namespace,omitempty"`
+}
+
+// GetKind returns the referent kind, defaulting to KCLRun when unset.
+func (d DependencyReference) GetKind() string {
+	if d.Kind == "" {
+		return KCLRunKind
+	}
+	return d.Kind
+}
+
+func (d DependencyReference) String() string {
+	if d.Namespace != "" {
+		return fmt.Sprintf("%s/%s/%s", d.GetKind(), d.Namespace, d.Name)
+	}
+	return fmt.Sprintf("%s/%s", d.GetKind(), d.Name)
+}

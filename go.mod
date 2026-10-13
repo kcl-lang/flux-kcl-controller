@@ -11,6 +11,7 @@ replace github.com/opencontainers/go-digest => github.com/opencontainers/go-dige
 require (
 	github.com/fluxcd/cli-utils v1.3.0
 	github.com/fluxcd/image-reflector-controller/api v1.2.5
+	github.com/fluxcd/kustomize-controller/api v1.9.6
 	github.com/fluxcd/pkg/apis/acl v0.11.0
 	github.com/fluxcd/pkg/apis/event v0.30.0
 	github.com/fluxcd/pkg/http/fetch v0.26.0
@@ -97,6 +98,7 @@ require (
 	github.com/envoyproxy/protoc-gen-validate v1.3.3 // indirect
 	github.com/exponent-io/jsonpath v0.0.0-20210407135951-1de76d718b3f // indirect
 	github.com/felixge/httpsnoop v1.1.0 // indirect
+	github.com/fluxcd/pkg/apis/kustomize v1.21.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.3 // indirect
 	github.com/go-errors/errors v1.5.1 // indirect
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 // indirect
