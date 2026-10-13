@@ -374,6 +374,11 @@ func (f *dependsOnFixture) newKCLRun(name string, kclRunSpecFn func(*v1alpha1.KC
 			Interval: metav1.Duration{Duration: 10 * time.Minute},
 			Prune:    true,
 			Path:     "./testdata/configmap",
+			// The controller does not default the namespace of an applied
+			// manifest, so the fixture reads it from here.
+			Config: &v1alpha1.ConfigSpec{
+				Arguments: []string{"namespace=" + f.namespace},
+			},
 			SourceRef: v1alpha1.CrossNamespaceSourceReference{
 				Name:      f.source.Name,
 				Namespace: f.source.Namespace,
