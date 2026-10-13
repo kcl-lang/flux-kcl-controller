@@ -1,0 +1,432 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.17.3
+  name: kclruns.krm.kcl.dev.fluxcd
+spec:
+  group: krm.kcl.dev.fluxcd
+  names:
+    kind: KCLRun
+    listKind: KCLRunList
+    plural: kclruns
+    singular: kclrun
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: KCLRun is the Schema for the kclruns API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: KCLRunSpec defines the desired state of KCLRun
+            properties:
+              argumentsReferences:
+                description: |-
+                  ArgumentReferences holds references to ConfigMaps and Secrets containing
+                  the KCL compile config. The ConfigMap and the Secret data keys represent the config names.
+                items:
+                  description: ArgumentReference contains a reference to a resource
+                    containing the KCL compile config.
+                  properties:
+                    kind:
+                      description: Kind of the values referent, valid values are ('Secret',
+                        'ConfigMap').
+                      enum:
+                      - Secret
+                      - ConfigMap
+                      type: string
+                    name:
+                      description: |-
+                        Name of the values referent. Should reside in the same namespace as the
+                        referring resource.
+                      maxLength: 253
+                      minLength: 1
+                      type: string
+                    optional:
+                      default: false
+                      description: |-
+                        Optional indicates whether the referenced resource must exist, or whether to
+                        tolerate its absence. If true and the referenced resource is absent, proceed
+                        as if the resource was present but empty, without any variables defined.
+                      type: boolean
+                  required:
+                  - kind
+                  - name
+                  type: object
+                type: array
+              commonMetadata:
+                description: |-
+                  CommonMetadata specifies the common labels and annotations that are
+                  applied to all resources. Any existing label or annotation will be
+                  overridden if its key matches a common one.
+                properties:
+                  annotations:
+                    additionalProperties:
+                      type: string
+                    description: Annotations to be added to the object's metadata.
+                    type: object
+                  labels:
+                    additionalProperties:
+                      type: string
+                    description: Labels to be added to the object's metadata.
+                    type: object
+                type: object
+              config:
+                description: Config is the KCL compile config.
+                properties:
+                  arguments:
+                    description: Arguments is the list of top level dynamic arguments
+                      for the kcl option function, e.g., env="prod"
+                    items:
+                      type: string
+                    type: array
+                  disableNone:
+                    description: DisableNone denotes running kcl and disable dumping
+                      None values.
+                    type: boolean
+                  overrides:
+                    description: Overrides is the list of override paths and values,
+                      e.g., app.image="v2"
+                    items:
+                      type: string
+                    type: array
+                  pathSelectors:
+                    description: PathSelectors is the list of path selectors to select
+                      output result, e.g., a.b.c
+                    items:
+                      type: string
+                    type: array
+                  settings:
+                    description: Settings is the list of kcl setting files including
+                      all of the CLI config.
+                    items:
+                      type: string
+                    type: array
+                  showHidden:
+                    description: ShowHidden denotes output the hidden attribute in
+                      the result.
+                    type: boolean
+                  sortKeys:
+                    description: SortKeys denotes sorting the output result keys,
+                      e.g., `{b = 1, a = 2} => {a = 2, b = 1}`.
+                    type: boolean
+                  vendor:
+                    description: Vendor denotes running kcl in the vendor mode.
+                    type: boolean
+                type: object
+              dependsOn:
+                description: |-
+                  DependsOn may contain a meta.NamespacedObjectReference slice
+                  with references to Kustomization resources that must be ready before this
+                  Kustomization can be reconciled.
+                items:
+                  description: |-
+                    NamespacedObjectReference contains enough information to locate the referenced Kubernetes resource object in any
+                    namespace.
+                  properties:
+                    name:
+                      description: Name of the referent.
+                      type: string
+                    namespace:
+                      description: Namespace of the referent, when not specified it
+                        acts as LocalObjectReference.
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
+              force:
+                default: false
+                description: |-
+                  Force instructs the controller to recreate resources
+                  when patching fails due to an immutable field change.
+                type: boolean
+              healthChecks:
+                description: A list of resources to be included in the health assessment.
+                items:
+                  description: |-
+                    NamespacedObjectKindReference contains enough information to locate the typed referenced Kubernetes resource object
+                    in any namespace.
+                  properties:
+                    apiVersion:
+                      description: API version of the referent, if not specified the
+                        Kubernetes preferred version will be used.
+                      type: string
+                    kind:
+                      description: Kind of the referent.
+                      type: string
+                    name:
+                      description: Name of the referent.
+                      type: string
+                    namespace:
+                      description: Namespace of the referent, when not specified it
+                        acts as LocalObjectReference.
+                      type: string
+                  required:
+                  - kind
+                  - name
+                  type: object
+                type: array
+              interval:
+                description: |-
+                  The interval at which to reconcile the KCL Module.
+                  This interval is approximate and may be subject to jitter to ensure
+                  efficient use of resources.
+                pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
+                type: string
+              kubeConfig:
+                description: |-
+                  The KubeConfig for reconciling the controller on a remote cluster.
+                  When used in combination with `KCLRunSpec.ServiceAccountName`,
+                  forces the controller to act on behalf of that Service Account at the
+                  target cluster.
+                  If the --default-service-account flag is set, its value will be used as
+                  a controller level fallback for when `KCLRunSpec.ServiceAccountName`
+                  is empty.
+                properties:
+                  secretRef:
+                    description: |-
+                      SecretRef holds the name of a secret that contains a key with
+                      the kubeconfig file as the value. If no key is set, the key will default
+                      to 'value'.
+                      It is recommended that the kubeconfig is self-contained, and the secret
+                      is regularly updated if credentials such as a cloud-access-token expire.
+                      Cloud specific `cmd-path` auth helpers will not function without adding
+                      binaries and credentials to the Pod that is responsible for reconciling
+                      Kubernetes resources.
+                    properties:
+                      key:
+                        description: Key in the Secret, when not specified an implementation-specific
+                          default key is used.
+                        type: string
+                      name:
+                        description: Name of the Secret.
+                        type: string
+                    required:
+                    - name
+                    type: object
+                required:
+                - secretRef
+                type: object
+              path:
+                description: |-
+                  Path to the directory containing the kcl.mod file.
+                  Defaults to 'None', which translates to the root path of the SourceRef.
+                type: string
+              persistentClient:
+                description: |-
+                  PersistentClient tells the controller to use a persistent Kubernetes
+                  client for this release. When enabled, the client will be reused for the
+                  duration of the reconciliation, instead of being created and destroyed
+                  for each (step of a).
+
+                  If not set, it defaults to true.
+                type: boolean
+              prune:
+                description: Prune enables garbage collection.
+                type: boolean
+              retryInterval:
+                description: |-
+                  The interval at which to retry a previously failed reconciliation.
+                  When not specified, the controller uses the KCLRunSpec.Interval
+                  value to retry failures.
+                pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
+                type: string
+              serviceAccountName:
+                description: |-
+                  The name of the Kubernetes service account to impersonate
+                  when reconciling this KCL source.
+                maxLength: 253
+                minLength: 1
+                type: string
+              sourceRef:
+                description: Reference of the source where the kcl file is.
+                properties:
+                  apiVersion:
+                    description: API version of the referent.
+                    type: string
+                  kind:
+                    description: Kind of the referent.
+                    enum:
+                    - OCIRepository
+                    - GitRepository
+                    - Bucket
+                    type: string
+                  name:
+                    description: Name of the referent.
+                    type: string
+                  namespace:
+                    description: |-
+                      Namespace of the referent, defaults to the namespace of the Kubernetes
+                      resource object that contains the reference.
+                    type: string
+                required:
+                - kind
+                - name
+                type: object
+              suspend:
+                description: |-
+                  This flag tells the controller to suspend subsequent kustomize executions,
+                  it does not apply to already started executions. Defaults to false.
+                type: boolean
+              targetNamespace:
+                description: |-
+                  TargetNamespace to target when performing operations for the KCL.
+                  Defaults to the namespace of the KCL source.
+                maxLength: 63
+                minLength: 1
+                type: string
+              timeout:
+                description: |-
+                  Timeout is the time to wait for any individual Kubernetes operation (like Jobs
+                  for hooks) during the performance. Defaults to '5m0s'.
+                pattern: ^([0-9]+(\.[0-9]+)?(ms|s|m|h))+$
+                type: string
+              wait:
+                description: |-
+                  Wait instructs the controller to check the health of all the reconciled
+                  resources. When enabled, the HealthChecks are ignored. Defaults to false.
+                type: boolean
+            required:
+            - interval
+            - prune
+            - sourceRef
+            type: object
+          status:
+            default:
+              observedGeneration: -1
+            description: KCLRunStatus defines the observed state of KCLRun
+            properties:
+              conditions:
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              inventory:
+                description: |-
+                  Inventory contains the list of Kubernetes resource object references that
+                  have been successfully applied.
+                properties:
+                  entries:
+                    description: Entries of Kubernetes resource object references.
+                    items:
+                      description: ResourceRef contains the information necessary
+                        to locate a resource within a cluster.
+                      properties:
+                        id:
+                          description: |-
+                            ID is the string representation of the Kubernetes resource object's metadata,
+                            in the format '<namespace>_<name>_<group>_<kind>'.
+                          type: string
+                        v:
+                          description: Version is the API version of the Kubernetes
+                            resource object's kind.
+                          type: string
+                      required:
+                      - id
+                      - v
+                      type: object
+                    type: array
+                required:
+                - entries
+                type: object
+              lastAppliedRevision:
+                description: |-
+                  The last successfully applied revision.
+                  Equals the Revision of the applied Artifact from the referenced Source.
+                type: string
+              lastAttemptedRevision:
+                description: LastAttemptedRevision is the revision of the last reconciliation
+                  attempt.
+                type: string
+              lastAttemptedRevisionDigest:
+                description: |-
+                  LastAttemptedRevisionDigest is the digest of the last reconciliation attempt.
+                  This is only set for OCIRepository sources.
+                type: string
+              lastHandledReconcileAt:
+                description: |-
+                  LastHandledReconcileAt holds the value of the most recent
+                  reconcile request value, so a change of the annotation value
+                  can be detected.
+                type: string
+              observedGeneration:
+                description: ObservedGeneration is the last reconciled generation.
+                format: int64
+                type: integer
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

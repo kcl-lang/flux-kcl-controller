@@ -1,0 +1,139 @@
+# Default values for flux-kcl-controller.
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/kcl-lang/flux-kcl-controller
+  # Defaults to the chart appVersion when empty. Pin a digest for reproducible
+  # installs: digest: "sha256:..."
+  tag: ""
+  digest: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  # Defaults to the fullname when empty.
+  name: ""
+  annotations: {}
+
+rbac:
+  # Create the ClusterRole/ClusterRoleBinding that lets the controller manage
+  # KCLRun objects cluster-wide and read the Sources they reference.
+  create: true
+
+  # The controller's job is to apply whatever manifests a KCLRun renders, on
+  # behalf of whoever wrote that KCLRun, and those manifests may target any
+  # namespace. The upstream config/default manifests therefore bind
+  # cluster-admin, and this chart matches that by default.
+  #
+  # Set this to false to drop the cluster-admin binding, then grant the
+  # permissions your workloads actually need via rbac.extraRules. Only do so if
+  # every KCLRun in the cluster stays within the rules below.
+  clusterAdminBinding:
+    create: true
+
+  # Appended to the controller ClusterRole.
+  extraRules: []
+
+service:
+  metrics:
+    # Address the metrics endpoint binds to. The container port and the probes
+    # are derived from it, so ":8083" exposes 8083 and setting this to "0" or
+    # "none" drops the port and the probes entirely.
+    bindAddress: ":8083"
+  events:
+    # Address of the notification-controller webhook. Empty disables events.
+    addr: ""
+
+# Which KCLRun objects to watch.
+watch:
+  # Watch every namespace. When false the controller only watches the namespace
+  # it is deployed into.
+  allNamespaces: true
+  # Only reconcile KCLRun objects carrying these labels,
+  # e.g. "sharding.fluxcd.io/shard=shard1".
+  labelSelector: ""
+  # ConfigMaps and Secrets are watched with these labels, which is how a KCLRun
+  # resolves spec.kubeConfig, spec.serviceAccountName and
+  # spec.argumentsReferences.
+  configsLabelSelector: "reconcile.fluxcd.io/watch=Enabled"
+
+# The service account the controller impersonates when a KCLRun does not name
+# one.
+defaultServiceAccount: ""
+
+leaderElection:
+  enabled: true
+
+logLevel: info
+# 'json' or 'console'.
+logEncoding: json
+
+# Retry backoff for a KCLRun that fails to reconcile.
+minRetryDelay: 750ms
+maxRetryDelay: 15m
+
+# How often failing dependencies are reevaluated.
+requeueDependency: 30s
+
+# Retries when fetching artifacts over HTTP.
+httpRetry: 9
+
+# Client-side throttling for requests to the Kubernetes API.
+kubeApi:
+  qps: 50
+  burst: 300
+
+# Remote apply through KCLRun.spec.kubeConfig is restricted by default; both of
+# these loosen that restriction and should stay off unless you trust every KCLRun
+# in the cluster.
+insecureKubeconfig:
+  # Allow the user.exec section of a KCLRun supplied kubeconfig.
+  exec: false
+  # Allow a KCLRun supplied kubeconfig to skip TLS verification.
+  tls: false
+
+# Field managers disallowed from changing resources the controller manages.
+overrideManagers: []
+
+# Extra command line flags appended verbatim.
+extraArgs: []
+# Flags that take a value, e.g. {name: http-retry, value: 3}.
+extraFlags: []
+
+# Filesystem the controller writes temporary compilations to.
+tmpVolume:
+  sizeLimit: ""
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 50m
+    memory: 64Mi
+
+# Keep the port here in step with service.metrics.bindAddress.
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8083"
+
+podLabels: {}
+
+podSecurityContext: {}
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+priorityClassName: ""
+terminationGracePeriodSeconds: 10
+
+updateStrategy: {}

@@ -26,6 +26,8 @@ ENVTEST_ARCH ?= amd64
 GITREPO_CRD ?= config/crd/bases/gitrepositories.yaml
 BUCKET_CRD ?= config/crd/bases/buckets.yaml
 OCIREPO_CRD ?= config/crd/bases/ocirepositories.yaml
+# The CRD the controller itself defines, and the copy the Helm chart ships.
+KCLRUN_CRD ?= config/crd/bases/krm.kcl.dev.fluxcd_kclruns.yaml
 
 # Keep a record of the version of the downloaded source CRDs. It is used to
 # detect and download new CRDs when the SOURCE_VER changes.
@@ -100,6 +102,16 @@ undeploy:
 manifests: controller-gen deepcopy-gen
 	$(CONTROLLER_GEN) $(CRD_OPTIONS) rbac:roleName=source-reader webhook paths="./..." output:crd:artifacts:config=config/crd/bases
 	$(DEEPCOPY_GEN) --input-dirs=$(INPUT_DIRS) --output-file-base=zz_generated.deepcopy --go-header-file=${BOILERPLATE_PATH}
+	$(MAKE) helm-chart-crds
+
+# Copy the generated CRD into the Helm chart. Helm only installs files under a
+# chart's crds/ directory on `helm install` and never touches them on upgrade or
+# uninstall, which is the behaviour a CRD wants, so the chart cannot template it.
+CHART_DIR := charts/flux-kcl-controller
+.PHONY: helm-chart-crds
+helm-chart-crds:
+	mkdir -p $(CHART_DIR)/crds
+	cp $(KCLRUN_CRD) $(CHART_DIR)/crds/
 
 # Run go tidy to cleanup go.mod
 tidy:

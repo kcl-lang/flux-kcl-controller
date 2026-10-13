@@ -1,0 +1,60 @@
+# GitOps installer for flux-kcl-controller.
+#
+# Apply this once to a cluster that already runs Flux:
+#
+#   kubectl apply -f https://raw.githubusercontent.com/kcl-lang/flux-kcl-controller/main/install/rc.yaml
+#
+# The chart is read straight out of this repository, so nothing has to be
+# published to a chart registry for the installer to work. Pin spec.chart.spec
+# .ref to a tag or commit if you would rather track a release than main.
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: flux-kcl-controller
+  namespace: flux-system
+spec:
+  interval: 1h
+  url: https://github.com/kcl-lang/flux-kcl-controller
+  ref:
+    branch: main
+  # Only the chart is needed to reconcile the HelmRelease, and the repository is
+  # large. Without this the whole tree is fetched on every reconcile.
+  ignore: |
+    #ignore
+    /*
+    !charts/
+    !charts/flux-kcl-controller/
+    !charts/flux-kcl-controller/**
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: flux-kcl-controller
+  namespace: flux-system
+spec:
+  interval: 1h
+  releaseName: flux-kcl-controller
+  targetNamespace: flux-system
+  chart:
+    spec:
+      chart: ./charts/flux-kcl-controller
+      sourceRef:
+        kind: GitRepository
+        name: flux-kcl-controller
+  install:
+    crds: Create
+    remediation:
+      retries: -1
+  upgrade:
+    # Helm installs CRDs from crds/ on install but never upgrades them, so the
+    # KCLRun CRD would otherwise stay frozen at whatever version the chart
+    # shipped. CreateReplace keeps it in step with the controller.
+    crds: CreateReplace
+    remediation:
+      retries: -1
+  values:
+    service:
+      events:
+        # Point this at your notification-controller to get KCLRun events.
+        addr: ""

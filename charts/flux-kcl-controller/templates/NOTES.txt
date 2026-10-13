@@ -1,0 +1,41 @@
+flux-kcl-controller {{ .Chart.AppVersion }} is installed as release {{ .Release.Name }}
+in namespace {{ .Release.Namespace }}.
+
+Check that it came up:
+
+  kubectl -n {{ .Release.Namespace }} rollout status deployment/{{ include "flux-kcl-controller.fullname" . }}
+
+The controller reconciles KCLRun objects. Create one with:
+
+  apiVersion: krm.kcl.dev.fluxcd/v1alpha1
+  kind: KCLRun
+  metadata:
+    name: my-app
+    namespace: {{ .Release.Namespace }}
+  spec:
+    sourceRef:
+      kind: GitRepository
+      name: my-app-source
+    path: ./app.k
+
+{{- if not .Values.service.events.addr }}
+
+NOTE: service.events.addr is empty, so the controller records events in the
+cluster only. Set it to your notification-controller's webhook address to
+receive them externally.
+{{- end }}
+
+{{- if not .Values.watch.allNamespaces }}
+
+NOTE: watch.allNamespaces is false, so the controller only reconciles KCLRun
+objects in namespace {{ .Release.Namespace }}.
+{{- end }}
+
+{{- if .Values.rbac.clusterAdminBinding.create }}
+
+NOTE: this release binds the controller service account to cluster-admin,
+matching the upstream config/default manifests. It needs that to apply whatever
+manifests a KCLRun renders. To narrow it down, set
+rbac.clusterAdminBinding.create=false and grant the permissions your workloads
+actually need through rbac.extraRules.
+{{- end }}
