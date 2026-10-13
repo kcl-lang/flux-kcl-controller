@@ -114,6 +114,42 @@ jobs:
             --set 'rbac.extraRules[0].verbs={create}' > /dev/null
           helm template flux-kcl-controller charts/flux-kcl-controller \
             --namespace flux-system --include-crds > /dev/null
+      - name: Check the chart appVersion matches the image tag convention
+        # values.yaml leaves image.tag empty, so the image reference falls back
+        # to appVersion. release.yaml derives the tag it pushes from the git ref
+        # name, which means every published tag carries a leading "v". An
+        # appVersion without one renders an image reference the registry has
+        # never had, and the deployment ImagePullBackOffs at install time.
+        run: |
+          python3 - <<'PY'
+          import re, sys, yaml
+
+          chart = yaml.safe_load(open("charts/flux-kcl-controller/Chart.yaml"))
+          app = str(chart["appVersion"])
+
+          # Releases are cut as git tags named vX.Y.Z, and release.yaml turns
+          # refs/tags/vX.Y.Z into vX.Y.Z, so that is the only shape a published
+          # image tag ever takes.
+          if not re.fullmatch(r"v\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?", app):
+              sys.exit(
+                  f"Chart.yaml appVersion is {app!r}, which is not a v<major>.<minor>"
+                  f".<patch>[-pre] tag. Published image tags come from the git tag "
+                  f"name, which carries a leading v, so the chart would resolve to "
+                  f"a tag the registry has never had."
+              )
+
+          # Guard the other half of the invariant: release.yaml has to hand the
+          # tag through untouched. If that expression is ever changed to strip
+          # the v, appVersion stops matching what gets published.
+          wf = open(".github/workflows/release.yaml").read()
+          if "VERSION=${GITHUB_REF/refs\\/tags\\//}" not in wf:
+              sys.exit(
+                  "release.yaml no longer derives the image tag verbatim from the "
+                  "git tag name. If it now strips or rewrites the leading v, "
+                  "Chart.yaml appVersion has to change with it."
+              )
+          print(f"appVersion {app} matches the tag convention release.yaml publishes")
+          PY
       - name: Check the chart CRD is in sync
         run: |
           make manifests
@@ -129,3 +165,122 @@ jobs:
               sys.exit(f"install/rc.yaml points at {path}, which has no Chart.yaml")
           print(f"install/rc.yaml points at {path}, which looks like a chart")
           PY
+  # Installs the controller the way a user does -- through install/rc.yaml, the
+  # GitRepository, the HelmRelease and the chart -- and then reconciles a real
+  # KCLRun against it.
+  #
+  # The other two jobs do not cover this. `chart` renders the chart and throws
+  # the output away, and `unit` deploys through config/default with kustomize.
+  # Neither proves that the chart produces a controller that runs and has the
+  # permissions to apply manifests. v0.12.0 shipped with a chart whose appVersion
+  # named an image tag the registry did not have, and nothing here would have
+  # said so.
+  e2e:
+    runs-on: ubuntu-latest
+    env:
+      # The chart's own repository, with a tag that only exists in kind. Loading
+      # the image locally keeps the test independent of what has been published
+      # and lets a pull request test its own build. Only the tag is overridden,
+      # so the repository and pull policy the chart specifies are still exercised.
+      IMAGE: ghcr.io/kcl-lang/flux-kcl-controller:e2e
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: 1.26.9
+          cache-dependency-path: |
+            **/go.sum
+            **/go.mod
+      - name: Setup Kustomize
+        uses: fluxcd/pkg/actions/kustomize@main
+      - name: Setup Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Setup Kubernetes
+        uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+        with:
+          version: v0.33.0
+          cluster_name: kind
+          node_image: kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
+      - name: Build the controller image
+        run: make docker-build IMG=${{ env.IMAGE }} BUILD_PLATFORMS=linux/amd64
+      - name: Load the controller image into kind
+        run: kind load docker-image ${{ env.IMAGE }}
+      - name: Install Flux
+        run: kustomize build test/e2e/flux | kubectl apply -f -
+      - name: Wait for Flux
+        run: |
+          kubectl -n flux-system rollout status deploy/source-controller --timeout=3m
+          kubectl -n flux-system rollout status deploy/helm-controller --timeout=3m
+      - name: Install the controller from the chart
+        run: |
+          # A pull request has to be tested against its own chart, not against
+          # whatever install/rc.yaml would otherwise pick up from main.
+          SHA="${{ github.event.pull_request.head.sha }}"
+          if [ -z "$SHA" ]; then SHA="${{ github.sha }}"; fi
+          echo "installing the chart at $SHA"
+          sed -i -e "s|COMMIT_SHA|$SHA|" -e "s|IMAGE_TAG|e2e|" \
+            test/e2e/install/kustomization.yaml
+          # The overlay points at install/rc.yaml, which is above its own root.
+          # Kustomize refuses to load that unless the restrictor is lifted, and
+          # there is nothing here for it to protect: every path is one this
+          # checkout just wrote out.
+          kustomize build --load-restrictor LoadRestrictionsNone \
+            test/e2e/install | kubectl apply -f -
+      - name: Wait for the controller
+        run: |
+          kubectl -n flux-system wait --for=condition=Ready \
+            helmrelease/flux-kcl-controller --timeout=5m
+          kubectl -n flux-system rollout status deploy/flux-kcl-controller --timeout=3m
+      - name: Check the image the chart resolves to
+        run: |
+          # The running deployment proves values.image flows through the chart's
+          # image helper. The render below is the same helper with no overrides,
+          # so it exercises the appVersion fallback that a real installation
+          # gets.
+          running="$(kubectl -n flux-system get deploy flux-kcl-controller \
+            -o jsonpath='{.spec.template.spec.containers[0].image}')"
+          echo "the chart started $running"
+          if [ "$running" != "${{ env.IMAGE }}" ]; then
+            echo "expected ${{ env.IMAGE }}"
+            exit 1
+          fi
+
+          app="$(python3 -c \
+            "import yaml;print(yaml.safe_load(open('charts/flux-kcl-controller/Chart.yaml'))['appVersion'])")"
+          rendered="$(helm template flux-kcl-controller charts/flux-kcl-controller \
+            --namespace flux-system | grep -o 'image: "[^"]*"' | head -1)"
+          echo "an unoverridden install would use $rendered (appVersion $app)"
+          if [ "$rendered" != "image: \"ghcr.io/kcl-lang/flux-kcl-controller:$app\"" ]; then
+            echo "expected the appVersion fallback ghcr.io/kcl-lang/flux-kcl-controller:$app"
+            exit 1
+          fi
+
+          kubectl -n flux-system logs deploy/flux-kcl-controller --tail=20
+      - name: Reconcile a KCLRun
+        run: |
+          kubectl apply -f test/e2e/kclrun.yaml
+          kubectl -n e2e wait --for=condition=Ready kclrun/e2e --timeout=5m
+      - name: Check the rendered ConfigMap
+        # The controller applied this through its own service account, so it is
+        # also the check that the chart ships the permissions the controller
+        # needs. A missing verb would leave the KCLRun stalled instead.
+        run: |
+          data="$(kubectl -n e2e get configmap kcl-controller-configmap -o jsonpath='{.data.key}')"
+          echo "the KCLRun rendered key=$data"
+          if [ "$data" != "value" ]; then
+            echo "expected key=value"
+            exit 1
+          fi
+      - name: Dump the state on failure
+        if: failure()
+        run: |
+          kubectl get helmreleases,gitrepositories -A || true
+          kubectl -n flux-system describe helmrelease flux-kcl-controller || true
+          kubectl -n flux-system logs deploy/flux-kcl-controller --tail=200 || true
+          kubectl -n e2e describe kclrun e2e || true
+          kubectl -n flux-system logs deploy/source-controller --tail=100 || true
+          kubectl -n flux-system logs deploy/helm-controller --tail=100 || true
