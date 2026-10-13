@@ -1,0 +1,54 @@
+# A real reconciliation against the controller that install/rc.yaml deployed.
+#
+# The program is the one the unit tests use, internal/controller/testdata/
+# configmap, rendered into its own namespace. That exercises the whole path a
+# user takes: the controller fetches an artifact, runs KCL, and applies the
+# result with its own service account. If the chart's RBAC were missing a
+# permission the controller needs, this is what would catch it -- rendering the
+# chart is not enough, the deployment has to be able to write.
+#
+# kubeConfig is left unset so the controller uses its in-cluster credentials,
+# the way it does in a real installation.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: e2e
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: e2e-source
+  namespace: e2e
+spec:
+  interval: 1m
+  url: https://github.com/kcl-lang/flux-kcl-controller
+  ref:
+    branch: main
+  # Fetch only the one program. The repository is large and the artifact does
+  # not need the rest of it.
+  ignore: |
+    #ignore
+    /*
+    !internal/
+    !internal/controller/
+    !internal/controller/testdata/
+    !internal/controller/testdata/configmap/
+    !internal/controller/testdata/configmap/**
+---
+apiVersion: krm.kcl.dev.fluxcd/v1alpha1
+kind: KCLRun
+metadata:
+  name: e2e
+  namespace: e2e
+spec:
+  interval: 1m
+  timeout: 2m
+  prune: true
+  path: ./internal/controller/testdata/configmap
+  sourceRef:
+    kind: GitRepository
+    name: e2e-source
+  config:
+    arguments:
+      # The controller does not default the namespace of an applied manifest.
+      - namespace=e2e

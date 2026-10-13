@@ -1,0 +1,36 @@
+# An overlay over the GitOps installer, so the e2e installs the same thing a
+# user does instead of a hand-written stand-in.
+#
+# The e2e job rewrites the two placeholders below before it builds this. Pinning
+# the commit is what makes a pull request test its own chart: the installer
+# tracks main, so a PR that only changes the chart would otherwise be tested
+# against whatever is already there. See the "Install the controller from the
+# chart" step in .github/workflows/test.yaml for how the substitution is done.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../../install/rc.yaml
+patches:
+  - target:
+      kind: GitRepository
+      name: flux-kcl-controller
+    patch: |-
+      - op: replace
+        path: /spec/ref
+        value:
+          commit: COMMIT_SHA
+  - target:
+      kind: HelmRelease
+      name: flux-kcl-controller
+    patch: |-
+      # Only the tag is redirected, not the repository. Sending the repository
+      # somewhere else as well would stop the test from covering the image
+      # wiring the chart itself specifies.
+      - op: add
+        path: /spec/values/image
+        value:
+          tag: IMAGE_TAG
+          # The image is loaded into kind rather than pulled, so the tag has to
+          # resolve locally or the kubelet will go looking for it in a registry
+          # that does not have it.
+          pullPolicy: IfNotPresent

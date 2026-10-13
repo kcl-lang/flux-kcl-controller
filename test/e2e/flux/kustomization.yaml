@@ -1,0 +1,22 @@
+# The subset of Flux the GitOps installer needs.
+#
+# install/rc.yaml declares a GitRepository and a HelmRelease, so source-controller
+# and helm-controller have to be running before it can be applied. The
+# notification-controller is left out on purpose: the installer sets
+# service.events.addr to the empty string, which turns events off.
+#
+# Both controllers ship their permissions in config/rbac rather than
+# config/manager, and both run as the namespace's default ServiceAccount, so
+# that directory is not optional. Without it the controllers come up and then
+# log a stream of "cannot list ..." errors against every object they watch.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: flux-system
+resources:
+  - namespace.yaml
+  - github.com/fluxcd/source-controller/config/crd?ref=main
+  - github.com/fluxcd/source-controller/config/rbac?ref=main
+  - github.com/fluxcd/source-controller/config/manager?ref=main
+  - github.com/fluxcd/helm-controller/config/crd?ref=main
+  - github.com/fluxcd/helm-controller/config/rbac?ref=main
+  - github.com/fluxcd/helm-controller/config/manager?ref=main
