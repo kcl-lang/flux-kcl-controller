@@ -313,6 +313,10 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res
 		// Stalled rather than retried: no amount of requeueing makes the
 		// artifact satisfy the constraint, only a spec or source change will.
 		conditions.MarkStalled(obj, v1alpha1.PackageVersionNotSatisfiedReason, "%s", err.Error())
+		// Ready is left at Unknown/Progressing by the status report above, so
+		// say why the pin failed here instead of leaving it to be misread as
+		// work still in flight.
+		conditions.MarkFalse(obj, meta.ReadyCondition, v1alpha1.PackageVersionNotSatisfiedReason, "%s", err.Error())
 		msg := fmt.Sprintf("KCL package version pin not satisfied, stalling: %s", err)
 		log.Error(err, msg)
 		r.event(obj, artifact.Revision, eventv1.EventSeverityError, msg, nil)
