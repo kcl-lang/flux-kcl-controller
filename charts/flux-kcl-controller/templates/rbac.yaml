@@ -6,6 +6,17 @@ metadata:
   labels:
     {{- include "flux-kcl-controller.labels" . | nindent 4 }}
 rules:
+  # ImagePolicies are read to resolve the image references a program marks for
+  # update. They are needed only by that feature, but the controller watches the
+  # kind on startup, so the read access is unconditional.
+  - apiGroups:
+      - image.toolkit.fluxcd.io
+    resources:
+      - imagepolicies
+    verbs:
+      - get
+      - list
+      - watch
   # KCLRun objects and their status.
   - apiGroups:
       - krm.kcl.dev.fluxcd
