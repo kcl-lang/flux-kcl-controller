@@ -50,6 +50,8 @@ import (
 
 	sourcev1 "github.com/fluxcd/source-controller/api/v1"
 
+	imagev1 "github.com/fluxcd/image-reflector-controller/api/v1"
+
 	"github.com/kcl-lang/flux-kcl-controller/api/v1alpha1"
 )
 
@@ -79,6 +81,8 @@ func runInContext(registerControllers func(*testenv.Environment), run func() int
 	// GitRepository
 	utilruntime.Must(sourcev1.AddToScheme(scheme.Scheme))
 	// OCIRepository
+	// ImagePolicy
+	utilruntime.Must(imagev1.AddToScheme(scheme.Scheme))
 	// KCLRun
 	utilruntime.Must(v1alpha1.AddToScheme(scheme.Scheme))
 

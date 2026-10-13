@@ -5,6 +5,14 @@ metadata:
   name: source-reader
 rules:
 - apiGroups:
+  - image.toolkit.fluxcd.io
+  resources:
+  - imagepolicies
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - krm.kcl.dev.fluxcd
   resources:
   - kclruns

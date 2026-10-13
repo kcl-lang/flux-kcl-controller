@@ -15,6 +15,7 @@ The `flux-kcl-controller` is a component developed for the integration of [KCL](
 # Features
 
 - Periodically monitor git repositories that store KCL programs and reconcile k8s cluster status according to changes in git repositories.
+- Keep the image references marked for update in step with the [ImagePolicies](https://fluxcd.io/flux/components/image/image-reflector/#imagepolicies) watching them, without a commit to Git.
 
 # Quick Start
 
@@ -133,3 +134,106 @@ nginx-deployment-1   1/1     1            0           4s
 ```
 
 `flux-kcl-controller` creates a `nginx-deployment-1` according to the KCL program in the repository.
+
+# Image update automation
+
+A KCL program usually pins the images it deploys. Keeping those pins current
+means editing the program and committing on every release, which is exactly the
+churn image automation is meant to remove.
+
+The controller reads the same `$imagepolicy` marker that
+[image-automation-controller](https://fluxcd.io/flux/components/image/image-automation/)
+reads from a Kustomization. Annotate the image with the name of an
+[ImagePolicy](https://fluxcd.io/flux/components/image/image-reflector/#imagepolicies),
+and the controller resolves it before compiling:
+
+```kcl
+import manifests
+
+nginx_image = "nginx:1.7.7"  # {"$imagepolicy": "flux-system:nginx"}
+
+items = [
+    {
+        apiVersion = "apps/v1"
+        kind = "Deployment"
+        spec = {
+            template = {
+                spec = {
+                    containers = [{
+                        name = "nginx"
+                        image = nginx_image
+                    }]
+                }
+            }
+        }
+    }
+]
+manifests.yaml_stream(items)
+```
+
+## What the marker means
+
+The marker annotates the string literal immediately before it, so no field path
+is needed: the position of the comment identifies the value to change. Every
+other occurrence of the same reference is left alone, which lets a program keep
+one image pinned deliberately and let another follow the policy.
+
+A policy name may be written as `namespace:name`; without a namespace, the
+ImagePolicy is read from the namespace of the `KCLRun`.
+
+A policy may update the **tag** or the **digest**, never the **repository**. The
+registry and the path belong to the author, so a policy that resolves to a
+different repository is a mistake or an attempt to redirect the workload
+somewhere else, and the `KCLRun` is held instead of applied.
+
+## How it behaves
+
+| Situation | Result |
+| --- | --- |
+| Policy elects a new tag or digest | The marked literal follows it, and the `KCLRun` re-applies. |
+| Policy does not exist, or has not reported an image | Retried. The `KCLRun` reports `ImagePolicyNotReady`. |
+| Policy resolves to another repository | `Stalled` with `ImagePolicyFailed`. Nothing is applied. |
+| Marker is malformed, or annotates no image | `Stalled` with `ImagePolicyFailed`. Nothing is applied. |
+
+A `KCLRun` is reconciled again as soon as a policy it may reference elects a new
+image, so an update does not wait for the reconciliation interval.
+
+## What to install
+
+The controller needs the ImagePolicy API, and reading it needs RBAC. Installing
+the controller with `make deploy` or the release manifest covers both. If you
+manage RBAC yourself, grant:
+
+```yaml
+- apiGroups:
+  - image.toolkit.fluxcd.io
+  resources:
+  - imagepolicies
+  verbs:
+  - get
+  - list
+  - watch
+```
+
+The `image-reflector-controller` and `image-automation-controller` themselves
+are not required. This feature replaces the automation controller for `KCLRun`
+sources, so running both against the same program is redundant.
+
+## Example
+
+```yaml
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImagePolicy
+metadata:
+  name: nginx
+  namespace: flux-system
+spec:
+  imageRepositoryRef:
+    name: nginx
+  policy:
+    semver:
+      range: ">=1.7.0"
+```
+
+With that policy in place, the `Deployment` above converges on the newest tag the
+range selects, with no commit to the repository.

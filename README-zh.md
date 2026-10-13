@@ -14,6 +14,7 @@ flux-kcl-controller 是一个组件，用于集成 [KCL](https://github.com/kcl-
 # 特性
 
 - 定期监控存储 KCL 程序的 git/oci 仓库，并根据 git 仓库中的变化，调谐 k8s 集群状态。
+- 让标记为自动更新的镜像引用跟随对应的 [ImagePolicy](https://fluxcd.io/flux/components/image/image-reflector/#imagepolicies) 变化，无需向 Git 提交。
 
 # 快速开始
 
@@ -136,3 +137,101 @@ nginx-deployment-1   1/1     1            0           4s
 ```
 
 可以看到，`flux-kcl-controller` 根据仓库中的 KCL 程序，创建了一个 `nginx-deployment-1` 资源。
+
+# 镜像自动更新
+
+KCL 程序通常会固定它所部署的镜像版本。要让这些版本保持最新，就需要在每次
+发布后修改程序并提交一次，而这正是镜像自动化想要消除的重复劳动。
+
+控制器读取的是与 [image-automation-controller](https://fluxcd.io/flux/components/image/image-automation/)
+在 Kustomization 中读取的相同的 `$imagepolicy` 标记。用
+[ImagePolicy](https://fluxcd.io/flux/components/image/image-reflector/#imagepolicies)
+的名称标注镜像，控制器会在编译前解析它：
+
+```kcl
+import manifests
+
+nginx_image = "nginx:1.7.7"  # {"$imagepolicy": "flux-system:nginx"}
+
+items = [
+    {
+        apiVersion = "apps/v1"
+        kind = "Deployment"
+        spec = {
+            template = {
+                spec = {
+                    containers = [{
+                        name = "nginx"
+                        image = nginx_image
+                    }]
+                }
+            }
+        }
+    }
+]
+manifests.yaml_stream(items)
+```
+
+## 标记的含义
+
+标记作用于它前面的那个字符串字面量，因此不需要写字段路径：注释的位置本身就
+标识了要修改的值。同一个引用的其他出现位置不会被修改，这样一个程序就可以
+既保留某个刻意固定的镜像，又让另一个跟随策略变化。
+
+策略名可以写成 `namespace:name`；省略命名空间时，从 `KCLRun` 所在的命名空间
+读取 ImagePolicy。
+
+策略可以更新 **tag** 或 **digest**，但不能更新 **仓库**。registry 和路径属于
+作者，因此解析到另一个仓库的策略要么是笔误，要么是在试图把工作负载重定向到
+别处，此时 `KCLRun` 会被挂起而不是被应用。
+
+## 行为
+
+| 情况 | 结果 |
+| --- | --- |
+| 策略选中了新的 tag 或 digest | 被标记的字面量跟随变化，`KCLRun` 重新应用。 |
+| 策略不存在，或尚未报告镜像 | 重试。`KCLRun` 报告 `ImagePolicyNotReady`。 |
+| 策略解析到另一个仓库 | 以 `ImagePolicyFailed` 进入 `Stalled`，不应用任何内容。 |
+| 标记格式错误，或没有标注到镜像 | 以 `ImagePolicyFailed` 进入 `Stalled`，不应用任何内容。 |
+
+只要一个可能被子运行的策略选中了新的镜像，`KCLRun` 就会立即重新调谐，因此
+更新不必等待调谐间隔。
+
+## 需要安装什么
+
+控制器需要 ImagePolicy API，读取它需要相应的 RBAC。使用 `make deploy` 或
+发布清单安装控制器即可覆盖这两项。如果你自行管理 RBAC，需要授予：
+
+```yaml
+- apiGroups:
+  - image.toolkit.fluxcd.io
+  resources:
+  - imagepolicies
+  verbs:
+  - get
+  - list
+  - watch
+```
+
+`image-reflector-controller` 和 `image-automation-controller` 本身不是必需的。
+对于 `KCLRun` 的来源，本功能取代了 automation controller，因此针对同一个
+程序同时运行两者是多余的。
+
+## 示例
+
+```yaml
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImagePolicy
+metadata:
+  name: nginx
+  namespace: flux-system
+spec:
+  imageRepositoryRef:
+    name: nginx
+  policy:
+    semver:
+      range: ">=1.7.0"
+```
+
+有了这个策略，上面的 `Deployment` 会收敛到该范围选中的最新 tag，无需向仓库
+提交任何改动。
