@@ -134,10 +134,10 @@ type KCLRunSpec struct {
 	// +optional
 	Path string `json:"path,omitempty" yaml:"path,omitempty"`
 
-	// Package pins the KCL package this KCLRun compiles. When set, the
-	// controller refuses to apply a revision whose package does not satisfy
-	// the pin, so a KCLRun never silently renders a version other than the
-	// one asked for.
+	// Package selects the KCL package version this KCLRun compiles. When set,
+	// the controller will not apply a package that does not satisfy the pin.
+	// For an OCIRepository whose current artifact does not satisfy it, the
+	// controller pulls the matching tag from the repository URL.
 	// +optional
 	Package *PackageSpec `json:"package,omitempty" yaml:"package,omitempty"`
 
@@ -184,22 +184,31 @@ type CommonMetadata struct {
 	Labels map[string]string `json:"labels,omitempty"`
 }
 
-// PackageSpec pins the version of the KCL package compiled by a KCLRun.
+// PackageSpec selects the version of the KCL package compiled by a KCLRun.
 type PackageSpec struct {
-	// Version constrains the version the KCL package at `spec.path` must
-	// declare in its `kcl.mod` for this KCLRun to reconcile. The version is
-	// read from the `[package] version` key of the `kcl.mod` found in the
-	// artifact at `spec.path`.
+	// Version selects which KCL package version this KCLRun compiles. The
+	// value is compared with the `[package] version` key of the package's
+	// `kcl.mod`.
 	//
 	// A bare version such as `0.1.0` requires that exact version. Ranges are
 	// expressed as a comma-separated list of comparisons, using the `=`,
 	// `!=`, `>`, `>=`, `<`, `<=` and `~>` operators, e.g. `>=0.1.0, <0.2.0`.
 	// The `^` and `~` shorthands and `x` wildcards are not supported.
 	//
-	// When set, the package must carry a `kcl.mod`. Reconciliation stalls
-	// rather than applying an unverified package if the constraint does not
-	// hold, which makes pinning a package version — and rolling back to a
-	// previous one — deterministic.
+	// The fetched source artifact is compiled when its `kcl.mod` satisfies
+	// the constraint. A GitRepository artifact is a single revision, so a
+	// mismatch stalls the KCLRun: nothing else can be fetched from that
+	// source. An OCIRepository whose artifact does not satisfy the
+	// constraint is treated as a repository of versions. The controller
+	// lists tags on `spec.url` and pulls the highest tag that satisfies the
+	// constraint, which is how a HelmRelease selects a chart version.
+	//
+	// Rolling back is done by setting Version to the previous release. The
+	// controller then pulls that tag, so a moved `latest` tag cannot be
+	// applied in its place. A failed apply is not reverted on its own.
+	//
+	// The package must carry a `kcl.mod` that declares a version. A pin that
+	// cannot be verified stalls rather than applying the package.
 	//
 	// +optional
 	Version string `json:"version,omitempty" yaml:"version,omitempty"`
@@ -269,8 +278,10 @@ type KCLRunStatus struct {
 	// +optional
 	LastAppliedRevision string `json:"lastAppliedRevision,omitempty" yaml:"lastAppliedRevision,omitempty"`
 
-	// The version of the KCL package that was last successfully applied.
-	// Only set when spec.package.version pins the package version.
+	// The version of the KCL package that was last successfully applied,
+	// as declared by its kcl.mod. Only set when spec.package.version pins
+	// the package version. For an OCIRepository this is the version selected
+	// from the repository, which may differ from the artifact ref.
 	// +optional
 	LastAppliedPackageVersion string `json:"lastAppliedPackageVersion,omitempty" yaml:"lastAppliedPackageVersion,omitempty"`
 

@@ -23,6 +23,7 @@ require (
 	github.com/hashicorp/go-version v1.9.0
 	github.com/hashicorp/vault/api v1.23.0
 	github.com/onsi/gomega v1.44.0
+	github.com/opencontainers/image-spec v1.1.1
 	github.com/ory/dockertest v3.3.5+incompatible
 	github.com/spf13/pflag v1.0.10
 	github.com/stretchr/testify v1.12.1
@@ -30,6 +31,7 @@ require (
 	k8s.io/client-go v0.37.0
 	kcl-lang.io/kcl-go v0.13.1
 	kcl-lang.io/kpm v0.13.1
+	oras.land/oras-go/v2 v2.6.1
 	sigs.k8s.io/controller-runtime v0.25.0
 )
 
@@ -153,7 +155,6 @@ require (
 	github.com/moby/sys/user v0.4.0 // indirect
 	github.com/moby/term v0.5.2 // indirect
 	github.com/monochromegane/go-gitignore v0.0.0-20200626010858-205db1a8cc00 // indirect
-	github.com/opencontainers/image-spec v1.1.1 // indirect
 	github.com/opencontainers/runc v1.1.14 // indirect
 	github.com/opencontainers/runtime-spec v1.2.1 // indirect
 	github.com/otiai10/copy v1.14.1 // indirect
@@ -204,7 +205,6 @@ require (
 	k8s.io/cli-runtime v0.37.0 // indirect
 	k8s.io/kubectl v0.37.0 // indirect
 	kcl-lang.io/lib v0.13.1 // indirect
-	oras.land/oras-go/v2 v2.6.1 // indirect
 	sigs.k8s.io/kustomize/api v0.21.1 // indirect
 	sigs.k8s.io/kustomize/kyaml v0.21.1 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect
