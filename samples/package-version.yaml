@@ -1,0 +1,29 @@
+# OCIRepository names the registry repository that holds every published
+# version of the package. spec.ref is what Flux fetches into the artifact.
+# spec.package.version on the KCLRun selects which of those versions to
+# compile when the artifact itself does not already satisfy the pin.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: podinfo
+  namespace: flux-system
+spec:
+  interval: 5m
+  url: oci://ghcr.io/kcl-lang/podinfo
+  ref:
+    tag: latest
+---
+apiVersion: krm.kcl.dev.fluxcd/v1alpha1
+kind: KCLRun
+metadata:
+  name: podinfo
+  namespace: flux-system
+spec:
+  interval: 10m
+  prune: true
+  sourceRef:
+    kind: OCIRepository
+    name: podinfo
+  package:
+    # Exact pin. ">=0.1.0, <0.2.0" selects the highest matching tag instead.
+    version: "0.1.0"

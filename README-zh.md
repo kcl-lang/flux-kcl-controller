@@ -170,6 +170,63 @@ nginx-deployment-1   1/1     1            0           4s
 
 可以看到，`flux-kcl-controller` 根据仓库中的 KCL 程序，创建了一个 `nginx-deployment-1` 资源。
 
+# 包版本
+
+`spec.package.version` 用来固定 `KCLRun` 编译的 KCL 包版本。它是一个版本约束，对照包内 `kcl.mod` 的 `[package] version`。
+
+| 取值 | 含义 |
+| --- | --- |
+| `0.1.0` | 恰好这个版本。 |
+| `>=0.1.0, <0.2.0` | 这个范围内的任意版本。比较运算符为 `=`、`!=`、`>`、`>=`、`<`、`<=` 和 `~>`。 |
+| `^0.1.0`、`~0.1.0`、`0.1.x` | 会被拒绝。这些写法不属于这套约束语法。 |
+
+未设置该字段的 `KCLRun` 行为与以前相同。`status.lastAppliedPackageVersion` 记录最近一次成功应用的版本。
+
+## Git 仓库
+
+`GitRepository` 的制品是某一个修订版本。`kcl.mod` 满足约束时控制器编译它；不满足时以 `PackageVersionNotSatisfied` 挂起。要换包，就修改约束或 Git 修订版本。
+
+## OCI 仓库
+
+一个 `OCIRepository` 可以存放同一个包的多个已发布版本，就像 Helm 仓库存放多个 Chart 版本。`spec.url` 是仓库地址，`spec.package.version` 是要编译的版本：
+
+```yaml
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: podinfo
+  namespace: flux-system
+spec:
+  interval: 5m
+  url: oci://ghcr.io/kcl-lang/podinfo
+  ref:
+    tag: latest
+---
+apiVersion: krm.kcl.dev.fluxcd/v1alpha1
+kind: KCLRun
+metadata:
+  name: podinfo
+  namespace: flux-system
+spec:
+  interval: 10m
+  prune: true
+  sourceRef:
+    kind: OCIRepository
+    name: podinfo
+  package:
+    version: "0.1.0"
+```
+
+`OCIRepository` 当前制品已经满足约束时，直接编译该制品，包括 `spec.path`。不满足时（例如 `latest` 已经前进、制品在 `spec.path` 下没有 `kcl.mod`，或约束指向一个更早的版本），控制器列出 `spec.url` 上的 tag，选择满足约束的最高版本并拉取。按 tag 拉取的包从它自己的根目录编译，`kcl.mod` 就在那里。
+
+这次拉取是匿名的。仓库需要登录时，请让 `OCIRepository` 的 `spec.ref` 指向目标版本，由它的 `spec.secretRef` 或 `spec.serviceAccountName` 完成认证；制品满足约束时控制器直接使用该制品。
+
+## 回滚
+
+把 `spec.package.version` 改回上一个版本。控制器会拉取那个 tag，因此后来移动过的 `latest` 不会被误应用。应用失败时控制器不会自行回滚：上一个版本必须写在 spec 里。
+
+示例见 [`samples/package-version.yaml`](samples/package-version.yaml)。
+
 # 镜像自动更新
 
 KCL 程序通常会固定它所部署的镜像版本。要让这些版本保持最新，就需要在每次

@@ -301,17 +301,43 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res
 		conditions.MarkFalse(obj, meta.ReadyCondition, meta.ArtifactFailedReason, "%s", err)
 		return ctrl.Result{}, err
 	}
-	if _, err := os.Stat(dirPath); err != nil {
-		err = fmt.Errorf("KCL package path not found: %w", err)
-		conditions.MarkFalse(obj, meta.ReadyCondition, meta.ArtifactFailedReason, "%s", err)
-		return ctrl.Result{}, err
-	}
 	// Honour the package version pin before compiling anything, so a revision
-	// carrying the wrong package never reaches the cluster.
-	pkgVersion, err := r.checkPackageVersion(obj, dirPath)
+	// carrying the wrong package never reaches the cluster. When the source
+	// is an OCIRepository and its artifact does not satisfy the pin, resolve
+	// the matching tag from the repository and compile that package.
+	ociURL := ""
+	if repository, ok := source.(*sourcev1.OCIRepository); ok {
+		ociURL = repository.Spec.URL
+	}
+	pin := ""
+	if obj.Spec.Package != nil {
+		pin = obj.Spec.Package.Version
+	}
+	if _, statErr := os.Stat(dirPath); statErr != nil {
+		// An OCI repository pin can still be resolved from the registry when
+		// the fetched artifact does not contain spec.path. Every other source
+		// has only that artifact, so a missing path fails here.
+		if strings.TrimSpace(pin) == "" || ociURL == "" {
+			err = fmt.Errorf("KCL package path not found: %w", statErr)
+			conditions.MarkFalse(obj, meta.ReadyCondition, meta.ArtifactFailedReason, "%s", err)
+			return ctrl.Result{}, err
+		}
+	}
+	resolvedPath, pkgVersion, err := kcl.ResolvePinnedPackage(ctx, pin, dirPath, ociURL, tmpDir, nil)
 	if err != nil {
-		// Stalled rather than retried: no amount of requeueing makes the
-		// artifact satisfy the constraint, only a spec or source change will.
+		if kcl.IsTransientPinError(err) {
+			// The registry could not be reached. Retry; do not stall on a
+			// failure that the next attempt may clear.
+			conditions.Delete(obj, meta.StalledCondition)
+			conditions.MarkFalse(obj, meta.ReadyCondition, meta.ArtifactFailedReason, "%s", err.Error())
+			log.Error(err, "failed to resolve pinned KCL package version")
+			r.event(obj, artifact.Revision, eventv1.EventSeverityError, err.Error(), nil)
+			return ctrl.Result{}, err
+		}
+		// Stalled rather than left in progress: no amount of requeueing makes
+		// this artifact, or the tags currently published, satisfy the
+		// constraint. A spec change, a new source revision, or a requested
+		// reconcile is what moves it forward.
 		conditions.MarkStalled(obj, v1alpha1.PackageVersionNotSatisfiedReason, "%s", err.Error())
 		// Ready is left at Unknown/Progressing by the status report above, so
 		// say why the pin failed here instead of leaving it to be misread as
@@ -322,6 +348,10 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res
 		r.event(obj, artifact.Revision, eventv1.EventSeverityError, msg, nil)
 		return ctrl.Result{}, err
 	}
+	if resolvedPath != dirPath {
+		log.Info("resolved pinned package version from OCI repository", "version", pkgVersion, "url", ociURL)
+	}
+	dirPath = resolvedPath
 	vars := make(map[string]string)
 	for _, reference := range obj.Spec.ArgumentsReferences {
 		namespacedName := types.NamespacedName{Namespace: obj.GetNamespace(), Name: reference.Name}
@@ -474,27 +504,29 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res
 	// package is not pinned.
 	obj.Status.LastAppliedPackageVersion = pkgVersion
 
-	// Mark the object as ready.
-	conditions.MarkTrue(
-		obj,
-		meta.ReadyCondition,
-		meta.ReconciliationSucceededReason,
-		"Applied revision: %s",
-		artifact.Revision,
-	)
+	// Mark the object as ready. A successful apply is not stalled, including
+	// one that recovered from a pin that previously could not be satisfied.
+	conditions.Delete(obj, meta.StalledCondition)
+	if pkgVersion != "" {
+		conditions.MarkTrue(
+			obj,
+			meta.ReadyCondition,
+			meta.ReconciliationSucceededReason,
+			"Applied revision: %s, package version %s",
+			artifact.Revision, pkgVersion,
+		)
+	} else {
+		conditions.MarkTrue(
+			obj,
+			meta.ReadyCondition,
+			meta.ReconciliationSucceededReason,
+			"Applied revision: %s",
+			artifact.Revision,
+		)
+	}
 
 	// Requeue the reconciliation at the specified interval.
 	return ctrl.Result{RequeueAfter: jitter.JitteredIntervalDuration(obj.GetRequeueAfter())}, nil
-}
-
-// checkPackageVersion returns the version of the KCL package at pkgPath when
-// spec.package.version pins it, and an empty string when no pin is set. An
-// error means the pin cannot be honoured for this revision.
-func (r *KCLRunReconciler) checkPackageVersion(obj *v1alpha1.KCLRun, pkgPath string) (string, error) {
-	if obj.Spec.Package == nil || obj.Spec.Package.Version == "" {
-		return "", nil
-	}
-	return kcl.CheckPackageVersion(pkgPath, obj.Spec.Package.Version)
 }
 
 // checkDependencies reports whether every object in spec.dependsOn is ready
