@@ -15,6 +15,7 @@ flux-kcl-controller 是一个组件，用于集成 [KCL](https://github.com/kcl-
 
 - 定期监控存储 KCL 程序的 git/oci 仓库，并根据 git 仓库中的变化，调谐 k8s 集群状态。
 - 让标记为自动更新的镜像引用跟随对应的 [ImagePolicy](https://fluxcd.io/flux/components/image/image-reflector/#imagepolicies) 变化，无需向 Git 提交。
+- 使用与 Flux `OCIRepository` 相同的 docker-registry Secret，从私有 OCI registry 拉取 KCL 模块依赖。
 
 # 安装
 
@@ -267,3 +268,63 @@ spec:
 
 有了这个策略，上面的 `Deployment` 会收敛到该范围选中的最新 tag，无需向仓库
 提交任何改动。
+
+# 私有 OCI 模块
+
+KCL 程序可以依赖存放在 OCI registry 中的模块。公开模块不需要额外配置。私有
+registry 在控制器能够登录之前会返回 `401` 或 `403`，`spec.ociAuth` 就是用来
+提供这份登录信息的。
+
+凭据是一个类型为 `kubernetes.io/dockerconfigjson` 的 Secret，与
+[Flux `OCIRepository.spec.secretRef`](https://fluxcd.io/flux/components/source/ocirepositories/#secret-reference)
+使用的对象相同，也与挂到 ServiceAccount 上的 `imagePullSecret` 相同。它必须
+和 `KCLRun` 在同一个命名空间。
+
+```shell
+kubectl create secret docker-registry ghcr-modules \
+  --namespace flux-system \
+  --docker-server=ghcr.io \
+  --docker-username=robot \
+  --docker-password="$GITHUB_TOKEN"
+```
+
+```yaml
+apiVersion: krm.kcl.dev.fluxcd/v1alpha1
+kind: KCLRun
+metadata:
+  name: app
+  namespace: flux-system
+spec:
+  interval: 5m
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: app
+  ociAuth:
+    secretRefs:
+      - name: ghcr-modules
+```
+
+`kcl.mod` 里的依赖写明 registry：
+
+```toml
+[dependencies]
+mylib = { oci = "oci://ghcr.io/my-org/mylib", tag = "0.1.0" }
+```
+
+这些 Secret 如果已经挂在某个 ServiceAccount 的 `imagePullSecrets` 上，可以改
+为引用这个账户，效果与 `OCIRepository.spec.serviceAccountName` 相同：
+
+```yaml
+spec:
+  ociAuth:
+    serviceAccountName: kcl-modules
+```
+
+`spec.ociAuth.serviceAccountName` 只用于 registry 登录。应用渲染结果时扮演的
+账户仍然是 `spec.serviceAccountName`。
+
+两者可以同时设置，凭据会合并；同一个 registry 出现两份不同的密码时，调谐会失败。
+Secret 或 ServiceAccount 尚不存在时会重试，`KCLRun` 报告 `RegistryAuthFailed`。
+Secret 的变更在下一次调谐时生效，给 `KCLRun` 设置
+`reconcile.fluxcd.io/requestedAt` 可以立刻触发一次。

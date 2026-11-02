@@ -5,6 +5,16 @@ metadata:
   name: source-reader
 rules:
 - apiGroups:
+  - ""
+  resources:
+  - configmaps
+  - secrets
+  - serviceaccounts
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - image.toolkit.fluxcd.io
   resources:
   - imagepolicies
