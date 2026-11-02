@@ -282,6 +282,51 @@ spec:
                 - message: exactly one of spec.kubeConfig.configMapRef or spec.kubeConfig.secretRef
                     must be specified
                   rule: '!has(self.configMapRef) || !has(self.secretRef)'
+              ociAuth:
+                description: |-
+                  OCIAuth supplies credentials for private OCI registries when the
+                  controller fetches KCL module dependencies declared in kcl.mod.
+                  Public modules need nothing here.
+
+                  When secretRefs and serviceAccountName are both set, their credentials
+                  are combined. Two different credentials for the same registry host are
+                  rejected.
+                properties:
+                  secretRefs:
+                    description: |-
+                      SecretRefs names Secrets in the KCLRun's namespace. Each Secret must be
+                      of type kubernetes.io/dockerconfigjson, created with
+                      `kubectl create secret docker-registry`. One Secret may carry
+                      credentials for several registries, and several Secrets may be listed.
+                      This is the same Secret an OCIRepository references from spec.secretRef,
+                      and the same object a ServiceAccount lists under imagePullSecrets.
+                    items:
+                      description: LocalObjectReference contains enough information
+                        to locate the referenced Kubernetes resource object.
+                      properties:
+                        name:
+                          description: Name of the referent.
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    type: array
+                  serviceAccountName:
+                    description: |-
+                      ServiceAccountName is the name of a ServiceAccount in the KCLRun's
+                      namespace. The controller authenticates with the image pull secrets
+                      attached to that account, the same way OCIRepository
+                      spec.serviceAccountName does.
+
+                      spec.serviceAccountName remains the account impersonated when applying
+                      manifests.
+                    maxLength: 253
+                    minLength: 1
+                    type: string
+                type: object
+                x-kubernetes-validations:
+                - message: spec.ociAuth requires secretRefs or serviceAccountName
+                  rule: (has(self.secretRefs) && size(self.secretRefs) > 0) || has(self.serviceAccountName)
               package:
                 description: |-
                   Package pins the KCL package this KCLRun compiles. When set, the

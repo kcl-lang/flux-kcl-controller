@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -157,6 +158,9 @@ func (r *KCLRunReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manage
 //+kubebuilder:rbac:groups=krm.kcl.dev.fluxcd,resources=kclruns/finalizers,verbs=update
 //+kubebuilder:rbac:groups=image.toolkit.fluxcd.io,resources=imagepolicies,verbs=get;list;watch
 //+kubebuilder:rbac:groups=kustomize.toolkit.fluxcd.io,resources=kustomizations,verbs=get
+//+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
+//+kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch
+//+kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -373,8 +377,22 @@ func (r *KCLRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res
 		return ctrl.Result{}, nil
 	}
 
+	// Private module dependencies are pulled during compilation. Load the
+	// registry credentials first so a missing Secret fails before kpm runs,
+	// and so the passwords never land in the KCL source directory.
+	credsFile, err := r.registryCredentialsFile(ctx, obj)
+	if err != nil {
+		conditions.MarkFalse(obj, meta.ReadyCondition, v1alpha1.RegistryAuthFailedReason, "%s", err.Error())
+		log.Error(err, "failed to load OCI registry credentials")
+		r.event(obj, artifact.Revision, eventv1.EventSeverityError, err.Error(), nil)
+		return ctrl.Result{}, err
+	}
+	if credsFile != "" {
+		defer os.RemoveAll(filepath.Dir(credsFile))
+	}
+
 	// Compile the KCL source code into the Kubernetes manifests
-	res, err := kcl.CompileKclPackage(obj, dirPath, vars)
+	res, err := kcl.CompileKclPackage(obj, dirPath, vars, credsFile)
 	if err != nil {
 		conditions.MarkFalse(obj, meta.ReadyCondition, "FetchFailed", "%s", err.Error())
 		log.Error(err, fmt.Sprintf("failed to compile the KCL source code path %s", dirPath))

@@ -47,6 +47,10 @@ const (
 	// PackageVersionNotSatisfiedReason marks a KCLRun stalled because the KCL
 	// package in the artifact does not satisfy spec.package.version.
 	PackageVersionNotSatisfiedReason = "PackageVersionNotSatisfied"
+	// RegistryAuthFailedReason marks a KCLRun that could not load the OCI
+	// credentials named by spec.ociAuth. Reconciliation is retried: the Secret
+	// or ServiceAccount may still be created.
+	RegistryAuthFailedReason = "RegistryAuthFailed"
 )
 
 // KCLRunSpec defines the desired state of KCLRun
@@ -145,6 +149,16 @@ type KCLRunSpec struct {
 	// +optional
 	Config *ConfigSpec `json:"config,omitempty" yaml:"config,omitempty"`
 
+	// OCIAuth supplies credentials for private OCI registries when the
+	// controller fetches KCL module dependencies declared in kcl.mod.
+	// Public modules need nothing here.
+	//
+	// When secretRefs and serviceAccountName are both set, their credentials
+	// are combined. Two different credentials for the same registry host are
+	// rejected.
+	// +optional
+	OCIAuth *OCIAuthSpec `json:"ociAuth,omitempty" yaml:"ociAuth,omitempty"`
+
 	// ArgumentReferences holds references to ConfigMaps and Secrets containing
 	// the KCL compile config. The ConfigMap and the Secret data keys represent the config names.
 	// +optional
@@ -203,6 +217,38 @@ type PackageSpec struct {
 	//
 	// +optional
 	Version string `json:"version,omitempty" yaml:"version,omitempty"`
+}
+
+// OCIAuthSpec configures credentials the controller uses when fetching KCL
+// module dependencies from private OCI registries. It follows the same
+// convention as a Flux OCIRepository: a Secret of type
+// kubernetes.io/dockerconfigjson, or the imagePullSecrets attached to a
+// ServiceAccount.
+//
+// Credentials are read from the same namespace as the KCLRun. A change is
+// picked up on the next reconciliation.
+// +kubebuilder:validation:XValidation:rule="(has(self.secretRefs) && size(self.secretRefs) > 0) || has(self.serviceAccountName)",message="spec.ociAuth requires secretRefs or serviceAccountName"
+type OCIAuthSpec struct {
+	// SecretRefs names Secrets in the KCLRun's namespace. Each Secret must be
+	// of type kubernetes.io/dockerconfigjson, created with
+	// `kubectl create secret docker-registry`. One Secret may carry
+	// credentials for several registries, and several Secrets may be listed.
+	// This is the same Secret an OCIRepository references from spec.secretRef,
+	// and the same object a ServiceAccount lists under imagePullSecrets.
+	// +optional
+	SecretRefs []meta.LocalObjectReference `json:"secretRefs,omitempty" yaml:"secretRefs,omitempty"`
+
+	// ServiceAccountName is the name of a ServiceAccount in the KCLRun's
+	// namespace. The controller authenticates with the image pull secrets
+	// attached to that account, the same way OCIRepository
+	// spec.serviceAccountName does.
+	//
+	// spec.serviceAccountName remains the account impersonated when applying
+	// manifests.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	// +optional
+	ServiceAccountName string `json:"serviceAccountName,omitempty" yaml:"serviceAccountName,omitempty"`
 }
 
 // ConfigSpec defines the compile config.

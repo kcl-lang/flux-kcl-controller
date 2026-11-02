@@ -11,7 +11,7 @@ import (
 
 func TestCompileKclPackage(t *testing.T) {
 	obj := &v1alpha1.KCLRun{}
-	_, err := CompileKclPackage(obj, "testdata/crds", nil)
+	_, err := CompileKclPackage(obj, "testdata/crds", nil, "")
 	assert.NoError(t, err)
 }
 

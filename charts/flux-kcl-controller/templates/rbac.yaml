@@ -72,7 +72,8 @@ rules:
     verbs:
       - get
   # Secrets and ConfigMaps back KCLRun.spec.kubeConfig,
-  # KCLRun.spec.serviceAccountName and KCLRun.spec.argumentsReferences.
+  # KCLRun.spec.serviceAccountName, KCLRun.spec.argumentsReferences and
+  # KCLRun.spec.ociAuth (private OCI module credentials).
   - apiGroups:
       - ""
     resources:
@@ -82,7 +83,8 @@ rules:
       - get
       - list
       - watch
-  # Service accounts are impersonated when applying manifests.
+  # Service accounts are impersonated when applying manifests, and
+  # KCLRun.spec.ociAuth.serviceAccountName reads their imagePullSecrets.
   - apiGroups:
       - ""
     resources:

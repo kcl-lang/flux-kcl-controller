@@ -386,7 +386,7 @@ func TestApplyImagePolicies_ReachesTheRenderedManifest(t *testing.T) {
 			},
 		},
 	}
-	res, err := CompileKclPackage(obj, filepath.Dir(path), nil)
+	res, err := CompileKclPackage(obj, filepath.Dir(path), nil, "")
 	require.NoError(t, err)
 
 	manifest := res.GetRawYamlResult()

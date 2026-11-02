@@ -16,6 +16,7 @@ The `flux-kcl-controller` is a component developed for the integration of [KCL](
 
 - Periodically monitor git repositories that store KCL programs and reconcile k8s cluster status according to changes in git repositories.
 - Keep the image references marked for update in step with the [ImagePolicies](https://fluxcd.io/flux/components/image/image-reflector/#imagepolicies) watching them, without a commit to Git.
+- Pull KCL module dependencies from a private OCI registry, using the same docker-registry Secret Flux uses for an `OCIRepository`.
 
 # Installation
 
@@ -271,3 +272,90 @@ spec:
 
 With that policy in place, the `Deployment` above converges on the newest tag the
 range selects, with no commit to the repository.
+
+# Private OCI modules
+
+A KCL program can depend on modules stored in an OCI registry. Public modules
+are fetched with no extra configuration. A private registry answers `401` or
+`403` until the controller can log in, which is what `spec.ociAuth` is for.
+
+The credential is a Kubernetes Secret of type `kubernetes.io/dockerconfigjson`:
+the same object [Flux `OCIRepository.spec.secretRef`](https://fluxcd.io/flux/components/source/ocirepositories/#secret-reference)
+uses, and the same object you would attach to a ServiceAccount as an
+`imagePullSecret`. It lives in the same namespace as the `KCLRun`.
+
+```shell
+kubectl create secret docker-registry ghcr-modules \
+  --namespace flux-system \
+  --docker-server=ghcr.io \
+  --docker-username=robot \
+  --docker-password="$GITHUB_TOKEN"
+```
+
+```yaml
+apiVersion: krm.kcl.dev.fluxcd/v1alpha1
+kind: KCLRun
+metadata:
+  name: app
+  namespace: flux-system
+spec:
+  interval: 5m
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: app
+  ociAuth:
+    secretRefs:
+      - name: ghcr-modules
+```
+
+One Secret can log in to several registries (`--docker-server` is one host per
+Secret; create another Secret, or one config with several `auths` entries, and
+list each under `secretRefs`). A dependency then names the registry in
+`kcl.mod`:
+
+```toml
+[dependencies]
+mylib = { oci = "oci://ghcr.io/my-org/mylib", tag = "0.1.0" }
+```
+
+## Service account image pull secrets
+
+If those Secrets are already attached to a ServiceAccount, point `ociAuth` at
+the account instead of repeating them. This is the same mechanism as
+`OCIRepository.spec.serviceAccountName`.
+
+```yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kcl-modules
+  namespace: flux-system
+imagePullSecrets:
+  - name: ghcr-modules
+```
+
+```yaml
+spec:
+  ociAuth:
+    serviceAccountName: kcl-modules
+```
+
+`spec.ociAuth.serviceAccountName` only selects registry credentials. The
+account impersonated when the rendered manifests are applied is still
+`spec.serviceAccountName`.
+
+`secretRefs` and `serviceAccountName` can both be set. Their credentials are
+combined, and two different passwords for the same registry host are rejected.
+
+## What to expect
+
+| Situation | Result |
+| --- | --- |
+| No `ociAuth`, public modules | Pulled anonymously. |
+| Secret or ServiceAccount not found yet | Retried. The `KCLRun` reports `RegistryAuthFailed`. |
+| Registry rejects the credentials | Retried. The compile error is reported as `FetchFailed`. |
+| Secret updated | Picked up on the next reconciliation. Set `reconcile.fluxcd.io/requestedAt` on the `KCLRun` to run one immediately. |
+
+The controller reads the Secret by name. It does not require the
+`reconcile.fluxcd.io/watch=Enabled` label.
