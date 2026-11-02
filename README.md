@@ -169,6 +169,63 @@ nginx-deployment-1   1/1     1            0           4s
 
 `flux-kcl-controller` creates a `nginx-deployment-1` according to the KCL program in the repository.
 
+# Package versions
+
+`spec.package.version` pins the KCL package a `KCLRun` compiles. The value is a version constraint checked against the `[package] version` of the package's `kcl.mod`.
+
+| Value | Meaning |
+| --- | --- |
+| `0.1.0` | That exact version. |
+| `>=0.1.0, <0.2.0` | Any version in the range. Comparisons are `=`, `!=`, `>`, `>=`, `<`, `<=` and `~>`. |
+| `^0.1.0`, `~0.1.0`, `0.1.x` | Rejected. Those spellings are not part of this constraint syntax. |
+
+A `KCLRun` that omits the field behaves as before. `status.lastAppliedPackageVersion` records the version that was last applied.
+
+## Git repositories
+
+A `GitRepository` artifact is one revision. The controller compiles it when the `kcl.mod` satisfies the pin, and stalls with `PackageVersionNotSatisfied` when it does not. Move the pin or the Git revision to change which package is applied.
+
+## OCI repositories
+
+An `OCIRepository` can hold many published versions of one package, the way a Helm repository holds many chart versions. `spec.url` names the repository. `spec.package.version` names the version to compile:
+
+```yaml
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: podinfo
+  namespace: flux-system
+spec:
+  interval: 5m
+  url: oci://ghcr.io/kcl-lang/podinfo
+  ref:
+    tag: latest
+---
+apiVersion: krm.kcl.dev.fluxcd/v1alpha1
+kind: KCLRun
+metadata:
+  name: podinfo
+  namespace: flux-system
+spec:
+  interval: 10m
+  prune: true
+  sourceRef:
+    kind: OCIRepository
+    name: podinfo
+  package:
+    version: "0.1.0"
+```
+
+When the artifact the `OCIRepository` currently offers already satisfies the pin, that artifact is compiled, `spec.path` included. When it does not — `latest` has moved on, the artifact has no `kcl.mod` at `spec.path`, or the pin asks for an older release — the controller lists the tags of `spec.url`, selects the highest one that satisfies the pin, and pulls that package. A package pulled by tag is compiled from its own root, where its `kcl.mod` lives.
+
+The pull is anonymous. A private registry is used through the `OCIRepository` artifact (its `spec.secretRef` or `spec.serviceAccountName`) when that artifact already satisfies the pin. Point the repository ref at the version you want when the registry requires a login to list or pull other tags.
+
+## Rolling back
+
+Set `spec.package.version` to the previous version. The controller pulls that tag from the OCI repository, so a `latest` tag that has since moved cannot be applied in its place. A failed apply is not reverted on its own: the previous version has to be named in the spec.
+
+See [`samples/package-version.yaml`](samples/package-version.yaml).
+
 # Image update automation
 
 A KCL program usually pins the images it deploys. Keeping those pins current
