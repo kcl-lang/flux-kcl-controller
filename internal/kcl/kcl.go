@@ -13,11 +13,18 @@ import (
 )
 
 // Compile the KCL source code into kubernetes manifests.
-func CompileKclPackage(obj *v1alpha1.KCLRun, pkgPath string, vars map[string]string) (*kcl.KCLResultList, error) {
-	cli, _ := client.NewKpmClient()
+// credsFile is an ORAS/docker config.json used to authenticate to private OCI
+// registries while resolving module dependencies. An empty path leaves the
+// pull anonymous, which is what a package with only public modules needs.
+func CompileKclPackage(obj *v1alpha1.KCLRun, pkgPath string, vars map[string]string, credsFile string) (*kcl.KCLResultList, error) {
+	cli, err := client.NewKpmClient()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create the KCL package client: %w", err)
+	}
+	useRegistryCredentials(cli, credsFile)
 	opts := []client.RunOption{}
 
-	pkgPath, err := filepath.Abs(pkgPath)
+	pkgPath, err = filepath.Abs(pkgPath)
 	if err != nil {
 		return nil, err
 	}

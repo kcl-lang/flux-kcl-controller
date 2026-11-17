@@ -1,0 +1,30 @@
+# Credentials for private KCL modules. The Secret is the same object Flux
+# OCIRepository.spec.secretRef and a ServiceAccount imagePullSecret use.
+#
+#   kubectl create secret docker-registry ghcr-modules \
+#     --namespace flux-system \
+#     --docker-server=ghcr.io \
+#     --docker-username=robot \
+#     --docker-password="$GITHUB_TOKEN"
+apiVersion: krm.kcl.dev.fluxcd/v1alpha1
+kind: KCLRun
+metadata:
+  name: private-modules
+  namespace: flux-system
+spec:
+  interval: 5m
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: app
+  # kcl.mod dependencies such as
+  #   mylib = { oci = "oci://ghcr.io/my-org/mylib", tag = "0.1.0" }
+  # are fetched with these credentials. Public modules need no ociAuth.
+  ociAuth:
+    secretRefs:
+      - name: ghcr-modules
+    # Alternatively, or in addition, use the imagePullSecrets of an account
+    # in this namespace. spec.serviceAccountName is the account impersonated
+    # when the rendered manifests are applied; this field only supplies
+    # registry credentials.
+    # serviceAccountName: kcl-modules

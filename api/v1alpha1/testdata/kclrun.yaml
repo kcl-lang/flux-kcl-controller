@@ -41,6 +41,10 @@ spec:
     sortKeys: true
     showHidden: false
     disableNone: true
+  ociAuth:
+    secretRefs:
+      - name: ghcr-modules
+    serviceAccountName: kcl-modules
   argumentsReferences:
     - kind: ConfigMap
       name: config-map-reference
