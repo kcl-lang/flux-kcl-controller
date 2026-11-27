@@ -29,7 +29,7 @@ require (
 	github.com/stretchr/testify v1.12.1
 	k8s.io/apimachinery v0.37.0
 	k8s.io/client-go v0.37.0
-	kcl-lang.io/kcl-go v0.13.2
+	kcl-lang.io/kcl-go v0.13.3
 	kcl-lang.io/kpm v0.13.2
 	oras.land/oras-go/v2 v2.7.0
 	sigs.k8s.io/controller-runtime v0.25.0
@@ -192,8 +192,8 @@ require (
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/crypto v0.58.0 // indirect
-	golang.org/x/mod v0.42.0 // indirect
-	golang.org/x/sync v0.24.0 // indirect
+	golang.org/x/mod v0.43.0 // indirect
+	golang.org/x/sync v0.25.0 // indirect
 	google.golang.org/api v0.299.0 // indirect
 	google.golang.org/genproto v0.0.0-20260715232425-e75dac1f907d // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260825221802-da73d73af1c5 // indirect
@@ -204,7 +204,7 @@ require (
 	gotest.tools v2.2.0+incompatible // indirect
 	k8s.io/cli-runtime v0.37.0 // indirect
 	k8s.io/kubectl v0.37.0 // indirect
-	kcl-lang.io/lib v0.13.2 // indirect
+	kcl-lang.io/lib v0.13.3 // indirect
 	sigs.k8s.io/kustomize/api v0.21.1 // indirect
 	sigs.k8s.io/kustomize/kyaml v0.21.1 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect
@@ -250,7 +250,7 @@ require (
 	golang.org/x/exp v0.0.0-20260824195058-e88cd73687aa
 	golang.org/x/net v0.61.0 // indirect
 	golang.org/x/oauth2 v0.37.0 // indirect
-	golang.org/x/sys v0.49.0 // indirect
+	golang.org/x/sys v0.50.0 // indirect
 	golang.org/x/term v0.47.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
 	golang.org/x/time v0.16.0 // indirect
